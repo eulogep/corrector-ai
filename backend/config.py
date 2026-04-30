@@ -13,6 +13,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 # ━━━ Clés API ━━━
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 # ━━━ JWT ━━━
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY", "dev-secret-change-me"))
