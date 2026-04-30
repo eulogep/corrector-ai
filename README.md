@@ -5,6 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![Claude](https://img.shields.io/badge/Claude-Opus_4.5-D4A853?style=for-the-badge&logo=anthropic&logoColor=white)
+![DeepSeek](https://img.shields.io/badge/DeepSeek-Fallback-1A1A2E?style=for-the-badge)
 ![Gemini](https://img.shields.io/badge/Gemini-Vision-4285F4?style=for-the-badge&logo=google&logoColor=white)
 ![Tests](https://img.shields.io/badge/Tests-7%2F7_✅-22C55E?style=for-the-badge)
 ![RGPD](https://img.shields.io/badge/RGPD-Conforme-6366F1?style=for-the-badge)
@@ -13,7 +14,9 @@
 **Correction intelligente de copies manuscrites par IA — OCR (Gemini Vision) + LLM (Claude)**  
 **pour les professeurs du système éducatif français.**
 
-[🚀 Démo](#-installation) · [📖 API Docs](#-api-endpoints) · [🐛 Signaler un bug](https://github.com/eulogep/corrector-ai/issues) · [💡 Proposer une feature](https://github.com/eulogep/corrector-ai/issues)
+### 🌐 [Demo live → corrector-ai.onrender.com](https://corrector-ai.onrender.com)
+
+[📖 API Docs](#-api-endpoints) · [🐛 Signaler un bug](https://github.com/eulogep/corrector-ai/issues) · [💡 Proposer une feature](https://github.com/eulogep/corrector-ai/issues)
 
 </div>
 
