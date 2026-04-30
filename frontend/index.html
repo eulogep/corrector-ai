@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Corrector AI — Correction intelligente de copies</title>
+<meta name="description" content="Application de correction de copies manuscrites par IA pour les professeurs français">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- AUTH PAGE -->
+<div id="auth-page" class="auth-wrapper">
+<div class="auth-card">
+<h1>✨ Corrector AI</h1>
+<p>Correction intelligente de copies manuscrites</p>
+<div id="auth-form-login">
+<div class="field"><label>Email</label><input type="email" id="login-email" placeholder="prof@ecole.fr"></div>
+<div class="field"><label>Mot de passe</label><input type="password" id="login-password" placeholder="••••••••"></div>
+<button class="btn btn-primary btn-full mt-12" onclick="doLogin()">Se connecter</button>
+<p class="mt-12 text-sm text-muted" style="text-align:center">Pas de compte ? <button class="link-btn" onclick="showRegister()">Créer un compte</button></p>
+</div>
+<div id="auth-form-register" style="display:none">
+<div class="row"><div class="field"><label>Nom</label><input id="reg-nom" placeholder="Dupont"></div><div class="field"><label>Prénom</label><input id="reg-prenom" placeholder="Jean"></div></div>
+<div class="field"><label>Email</label><input type="email" id="reg-email" placeholder="prof@ecole.fr"></div>
+<div class="field"><label>Mot de passe</label><input type="password" id="reg-password" placeholder="Min. 6 caractères"></div>
+<button class="btn btn-primary btn-full mt-12" onclick="doRegister()">Créer mon compte</button>
+<p class="mt-12 text-sm text-muted" style="text-align:center">Déjà un compte ? <button class="link-btn" onclick="showLogin()">Se connecter</button></p>
+</div>
+</div>
+</div>
+
+<!-- APP -->
+<div id="app" class="app" style="display:none">
+<button class="toggle-sidebar" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+<aside class="sidebar">
+<div class="logo">✨ Corrector AI</div>
+<nav>
+<a href="#" data-page="dashboard" class="active"><span class="icon">📊</span>Dashboard</a>
+<a href="#" data-page="corriger"><span class="icon">📝</span>Corriger une copie</a>
+<a href="#" data-page="eleves"><span class="icon">👥</span>Élèves</a>
+<a href="#" data-page="historique"><span class="icon">📚</span>Historique</a>
+<a href="#" data-page="rapports"><span class="icon">📄</span>Rapports</a>
+</nav>
+<div class="user-box">
+<div class="avatar" id="user-avatar">JP</div>
+<div class="info"><div class="name" id="user-name">Jean Professeur</div><div class="email" id="user-email">jean@ecole.fr</div></div>
+<button class="link-btn" onclick="logout()" title="Déconnexion">🚪</button>
+</div>
+</aside>
+<main class="main">
+
+<!-- DASHBOARD -->
+<div class="page active" id="page-dashboard">
+<h2 class="page-title">📊 Dashboard</h2>
+<div class="kpi-grid">
+<div class="kpi-card"><div class="kpi-label">Copies corrigées</div><div class="kpi-value" id="kpi-exams">0</div></div>
+<div class="kpi-card"><div class="kpi-label">Élèves</div><div class="kpi-value" id="kpi-students">0</div></div>
+<div class="kpi-card"><div class="kpi-label">Moyenne générale</div><div class="kpi-value" id="kpi-avg">—</div></div>
+<div class="kpi-card"><div class="kpi-label">Alertes anomalies</div><div class="kpi-value" id="kpi-alerts">0</div></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+<div class="card"><h3>📈 Moyennes par matière</h3><div class="chart-container"><canvas id="chart-matieres"></canvas></div></div>
+<div class="card"><h3>🕐 Dernières corrections</h3><div class="table-wrap"><table><thead><tr><th>Élève</th><th>Matière</th><th>Note</th><th>Date</th></tr></thead><tbody id="recent-exams"></tbody></table></div></div>
+</div>
+</div>
+
+<!-- CORRIGER -->
+<div class="page" id="page-corriger">
+<h2 class="page-title">📝 Corriger une copie</h2>
+<div class="steps" id="correction-steps">
+<div class="step active" data-step="1"><span class="num">1</span>Informations</div>
+<div class="step" data-step="2"><span class="num">2</span>Scanner</div>
+<div class="step" data-step="3"><span class="num">3</span>Corrigé type</div>
+<div class="step" data-step="4"><span class="num">4</span>Correction IA</div>
+<div class="step" data-step="5"><span class="num">5</span>Résultats</div>
+</div>
+<!-- Step 1 -->
+<div class="card step-content" id="step-1">
+<h3>Informations de la copie</h3>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="mt-12">
+<div class="field"><label>Élève</label><select id="corr-student"><option value="">Sélectionner un élève...</option></select></div>
+<div class="field"><label>Matière</label><input id="corr-matiere" placeholder="Mathématiques, SVT..."></div>
+<div class="field"><label>Niveau</label><input id="corr-niveau" placeholder="3ème, Terminale..."></div>
+<div class="field"><label>Date</label><input type="date" id="corr-date"></div>
+<div class="field"><label>Note sur</label><input type="number" id="corr-notesur" value="20" min="1"></div>
+</div>
+<div class="mt-20"><button class="btn btn-primary" onclick="goStep(2)">Suivant →</button></div>
+</div>
+<!-- Step 2 -->
+<div class="card step-content" id="step-2" style="display:none">
+<h3>Scanner la copie</h3>
+<div class="dropzone mt-12" id="dropzone" onclick="document.getElementById('file-input').click()">
+<div class="icon">📷</div>
+<p>Glissez une image ici ou cliquez pour sélectionner</p>
+<p class="text-sm text-muted mt-8">JPG, PNG, WebP, PDF — max 10 MB</p>
+</div>
+<input type="file" id="file-input" accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none" onchange="handleFileSelect(event)">
+<div id="ocr-preview" style="display:none" class="mt-20">
+<h4>📋 Texte extrait par OCR</h4>
+<div id="ocr-result" class="card mt-8" style="white-space:pre-wrap;font-size:.9rem;max-height:300px;overflow-y:auto"></div>
+</div>
+<div class="mt-20 flex-between">
+<button class="btn btn-secondary" onclick="goStep(1)">← Retour</button>
+<button class="btn btn-primary" onclick="goStep(3)">Suivant →</button>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="card step-content" id="step-3" style="display:none">
+<h3 class="flex-between">Corrigé type <button class="btn btn-sm btn-secondary" onclick="addExercise()">+ Exercice</button></h3>
+<div id="exercises-list" class="mt-12"></div>
+<div class="mt-20 flex-between">
+<button class="btn btn-secondary" onclick="goStep(2)">← Retour</button>
+<button class="btn btn-primary" onclick="goStep(4)">Lancer la correction →</button>
+</div>
+</div>
+<!-- Step 4 -->
+<div class="card step-content" id="step-4" style="display:none;text-align:center;padding:60px">
+<div class="spinner" style="width:48px;height:48px;border-width:4px;margin:0 auto"></div>
+<h3 class="mt-20">Correction en cours...</h3>
+<p class="text-muted mt-8">L'IA analyse la copie et compare avec le corrigé</p>
+</div>
+<!-- Step 5 -->
+<div class="card step-content" id="step-5" style="display:none">
+<div class="result-header">
+<div><h3>Résultat de la correction</h3><p class="text-muted text-sm" id="result-info"></p></div>
+<div class="big-note" id="result-note"></div>
+</div>
+<div id="result-appreciation" class="card mb-20" style="border-left:3px solid var(--primary)"></div>
+<div id="result-anomaly" style="display:none" class="card mb-20" style="border-left:3px solid var(--danger);color:var(--danger)"></div>
+<h4 class="mb-12">Détail par exercice</h4>
+<div id="result-exercises"></div>
+<div class="mt-20 flex-between">
+<button class="btn btn-secondary" onclick="resetCorrection()">Nouvelle correction</button>
+<div style="display:flex;gap:10px">
+<button class="btn btn-primary" onclick="downloadPDF()">📄 Télécharger PDF</button>
+<button class="btn btn-secondary" onclick="showEmailModal()">📧 Envoyer par email</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ELEVES -->
+<div class="page" id="page-eleves">
+<h2 class="page-title flex-between">👥 Élèves <button class="btn btn-primary btn-sm" onclick="showAddStudent()">+ Ajouter un élève</button></h2>
+<div class="student-grid" id="students-grid"></div>
+<div id="student-detail" style="display:none">
+<button class="link-btn mb-20" onclick="backToStudentList()">← Retour à la liste</button>
+<div class="flex-between mb-20"><div><h3 id="sd-name"></h3><p class="text-muted" id="sd-class"></p></div><div class="kpi-grid" style="grid-template-columns:repeat(2,120px)"><div class="kpi-card"><div class="kpi-label">Moyenne</div><div class="kpi-value" id="sd-avg">—</div></div><div class="kpi-card"><div class="kpi-label">Copies</div><div class="kpi-value" id="sd-count">0</div></div></div></div>
+<div class="card"><h3>📈 Progression</h3><div class="chart-container"><canvas id="chart-progression"></canvas></div></div>
+<div class="card"><h3>📚 Copies</h3><div class="table-wrap"><table><thead><tr><th>Matière</th><th>Note</th><th>Date</th><th>Anomalie</th></tr></thead><tbody id="sd-exams"></tbody></table></div></div>
+</div>
+</div>
+
+<!-- HISTORIQUE -->
+<div class="page" id="page-historique">
+<h2 class="page-title">📚 Historique des copies</h2>
+<div class="filters">
+<input placeholder="Filtrer par matière..." id="filter-matiere" oninput="loadHistory()">
+<select id="filter-classe" onchange="loadHistory()"><option value="">Toutes les classes</option></select>
+</div>
+<div class="card"><div class="table-wrap"><table><thead><tr><th>Élève</th><th>Classe</th><th>Matière</th><th>Note</th><th>Date</th><th>Anomalie</th><th></th></tr></thead><tbody id="history-table"></tbody></table></div></div>
+</div>
+
+<!-- RAPPORTS -->
+<div class="page" id="page-rapports">
+<h2 class="page-title">📄 Rapports</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+<div class="card"><h3>📄 Télécharger un PDF</h3><p class="text-muted text-sm mt-8">Entrez l'ID de la copie pour générer le rapport</p><div class="mt-12" style="display:flex;gap:10px"><input type="number" id="pdf-exam-id" placeholder="ID copie" style="width:120px"><button class="btn btn-primary btn-sm" onclick="downloadPDFById()">Télécharger</button></div></div>
+<div class="card"><h3>📧 Config SMTP</h3><p class="text-muted text-sm mt-8">Configurez l'envoi dans le fichier .env</p><div class="mt-12"><code style="color:var(--primary);font-size:.85rem">SMTP_HOST, SMTP_USER, SMTP_PASSWORD</code></div></div>
+<div class="card"><h3>📊 Export CSV</h3><p class="text-muted text-sm mt-8">Exportez les notes d'une classe</p><div class="mt-12" style="display:flex;gap:10px"><input id="csv-classe" placeholder="Classe (ex: 3ème B)" style="width:180px"><button class="btn btn-primary btn-sm" onclick="exportCSV()">Exporter</button></div></div>
+</div>
+</div>
+
+</main>
+</div>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="modal-student">
+<div class="modal">
+<h3 id="modal-student-title">Ajouter un élève</h3>
+<div class="field"><label>Nom</label><input id="ms-nom" placeholder="Martin"></div>
+<div class="field"><label>Prénom</label><input id="ms-prenom" placeholder="Pierre"></div>
+<div class="field"><label>Classe</label><input id="ms-classe" placeholder="3ème B"></div>
+<div class="field"><label>Email (optionnel)</label><input id="ms-email" type="email" placeholder="eleve@ecole.fr"></div>
+<div class="actions"><button class="btn btn-secondary" onclick="closeModal('modal-student')">Annuler</button><button class="btn btn-primary" onclick="saveStudent()">Enregistrer</button></div>
+</div>
+</div>
+<div class="modal-overlay" id="modal-email">
+<div class="modal">
+<h3>Envoyer par email</h3>
+<div class="field"><label>Adresse email</label><input id="me-email" type="email" placeholder="eleve@ecole.fr"></div>
+<div class="field"><label>Message</label><textarea id="me-message" rows="3">Veuillez trouver ci-joint votre rapport de correction.</textarea></div>
+<div class="actions"><button class="btn btn-secondary" onclick="closeModal('modal-email')">Annuler</button><button class="btn btn-primary" onclick="sendEmail()">Envoyer</button></div>
+</div>
+</div>
+
+<div class="toast" id="toast"><span id="toast-msg"></span></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Environnement
+.env
+*.pyc
+__pycache__/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Données locales
+data/uploads/*
+data/reports/*
+data/*.db
+!data/.gitkeep
+!data/uploads/.gitkeep
+!data/reports/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Tests
+.pytest_cache/
+htmlcov/
+.coverage
