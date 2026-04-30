@@ -1,0 +1,28 @@
+╔══════════════════════════════════════════════════════════════╗
+║          RAPPORT DE TESTS — CORRECTOR AI                    ║
+║          https://corrector-ai.onrender.com       ║
+╠══════════════════════════════════════════════════════════════╣
+║  Date        : 2026-04-30 23:51                            ║
+║  Tests       : 15 tests exécutés                           ║
+║  Résultat    : 15 ✅  0 ❌                                ║
+║  Durée totale: 121.2s                                     ║
+╠══════════════════════════════════════════════════════════════╣
+║  T01 ✅ GET /docs                    → 200   (37.7s)        ║
+║  T02 ✅ GET /openapi.json            → 200   (4.69s)        ║
+║  T03 ✅ GET /stats/dashboard         → 401   (4.2s)         ║
+║  T04 ✅ POST /auth/register          → 200   (5.87s)        ║
+║  T05 ✅ POST /auth/login             → 200   (6.41s)        ║
+║  T06 ✅ Login mauvais mdp            → 401   (5.62s)        ║
+║  T07 ✅ POST /students/              → 200   (5.61s)        ║
+║  T08 ✅ GET /students/               → 200   (5.72s)        ║
+║  T09 ✅ GET /students/1              → 200   (4.86s)        ║
+║  T10 ✅ GET /students/1/progression  → 200   (5.06s)        ║
+║  T11 ✅ POST /grading/quick          → 200   (8.72s)        ║
+║  T12 ✅ POST /ocr/simple             → 200   (10.39s)       ║
+║  T13 ✅ POST /grading/grade          → 200   (5.19s)        ║
+║  T14 ✅ GET /reports/pdf/1           → 200   (4.95s)        ║
+║  T15 ✅ DELETE /exams/1              → 200   (6.2s)         ║
+╠══════════════════════════════════════════════════════════════╣
+║  ENDPOINTS OK      : 15/15                                ║
+║  TEMPS MOYEN       : 8.1s/requête                              ║
+╚══════════════════════════════════════════════════════════════╝
