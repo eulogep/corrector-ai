@@ -1,3 +1,9 @@
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
+![Tests](https://img.shields.io/badge/Tests-7%2F7%20✅-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+![RGPD](https://img.shields.io/badge/RGPD-Conforme-blue)
+
 # 🎓 Corrector AI
 
 **Correction intelligente de copies manuscrites par IA** — OCR (Gemini Vision) + LLM (Claude) pour les professeurs du système éducatif français.
