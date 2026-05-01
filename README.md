@@ -7,7 +7,7 @@
 ![Claude](https://img.shields.io/badge/Claude-Opus_4.5-D4A853?style=for-the-badge&logo=anthropic&logoColor=white)
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-Fallback-1A1A2E?style=for-the-badge)
 ![Gemini](https://img.shields.io/badge/Gemini-Vision-4285F4?style=for-the-badge&logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-15%2F15_✅-22C55E?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-22%2F22_✅-22C55E?style=for-the-badge)
 ![RGPD](https://img.shields.io/badge/RGPD-Conforme-6366F1?style=for-the-badge)
 ![License](https://img.shields.io/badge/Licence-MIT-F59E0B?style=for-the-badge)
 
@@ -49,6 +49,10 @@ Corrector AI automatise tout le pipeline de correction :
 | 📧 **Envoi email** | Rapport envoyé à l'élève automatiquement via SMTP |
 | 📊 **Export CSV** | Notes par classe exportables en un clic |
 | 🔒 **RGPD natif** | SQLite local — aucune donnée élève envoyée à l'étranger |
+| 🛡️ **CORS restreint** | Whitelist d'origines configurable (pas de `*`) |
+| ⏱️ **Rate limiting** | Protection anti-abus (5/10/60 req/min selon endpoint) |
+| 🔍 **Validation uploads** | Magic bytes + taille max + anti-spoofing MIME |
+| 📋 **Logging structuré** | Traçabilité complète de chaque action |
 
 ---
 
@@ -138,10 +142,10 @@ python -m backend.app
 ## 🧪 Tests
 
 ```bash
-# Tests unitaires (mocks)
+# Tests unitaires + upload validation (mocks)
 cd corrector-ai
 python -m pytest backend/tests/ -v
-# 7/7 ✅
+# 22/22 ✅ (CRUD, grading, OCR, subjects, upload validation)
 
 # Tests API live (Render)
 python tests/test_api_live.py
@@ -208,6 +212,7 @@ python tests/test_api_live.py
 | **LLM** | Claude → DeepSeek (fallback) → Mock |
 | **PDF** | ReportLab |
 | **Auth** | JWT (python-jose) + bcrypt |
+| **Sécurité** | CORS whitelist, rate limiting (slowapi), magic bytes |
 | **Frontend** | HTML / CSS / JS vanille (SPA) |
 | **Déploiement** | Render (disque persistant 1 GB) |
 
@@ -218,6 +223,8 @@ python tests/test_api_live.py
 - [x] Déploiement Render (URL publique) ✅
 - [x] Fallback multi-LLM (Claude → DeepSeek → Mock) ✅
 - [x] Tests API live automatisés (15/15) ✅
+- [x] CORS restreint + Rate limiting + Validation uploads ✅
+- [x] Logging structuré sur toutes les routes ✅
 - [ ] Application mobile (React Native)
 - [ ] Import CSV liste élèves
 - [ ] Graphiques de progression (Chart.js avancé)
