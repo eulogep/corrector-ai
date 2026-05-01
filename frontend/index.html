@@ -69,11 +69,51 @@
 <div class="page" id="page-corriger">
 <h2 class="page-title">📝 Corriger une copie</h2>
 <div class="steps" id="correction-steps">
-<div class="step active" data-step="1"><span class="num">1</span>Informations</div>
+<div class="step active" data-step="0"><span class="num">0</span>Sujet (optionnel)</div>
+<div class="step" data-step="1"><span class="num">1</span>Informations</div>
 <div class="step" data-step="2"><span class="num">2</span>Scanner</div>
 <div class="step" data-step="3"><span class="num">3</span>Corrigé type</div>
 <div class="step" data-step="4"><span class="num">4</span>Correction IA</div>
 <div class="step" data-step="5"><span class="num">5</span>Résultats</div>
+</div>
+<!-- Step 0 — Import sujet & génération barème automatique -->
+<div class="card step-content" id="step-0">
+<h3>📋 Importer le sujet (optionnel)</h3>
+<p class="text-sm text-muted mt-8">Uploadez le PDF du sujet : l'IA génère automatiquement le barème. Vous pourrez le corriger avant validation.</p>
+<div class="dropzone mt-12" id="dropzone-subject" onclick="document.getElementById('subject-file-input').click()">
+<div class="icon">📄</div>
+<p>Glissez le sujet ici ou cliquez pour sélectionner</p>
+<p class="text-sm text-muted mt-8">PDF, DOCX, image — max 10 MB</p>
+</div>
+<input type="file" id="subject-file-input" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp" style="display:none" onchange="handleSubjectFileSelect(event)">
+<div id="subject-analyzing" style="display:none;text-align:center;padding:40px">
+<div class="spinner" style="width:40px;height:40px;border-width:3px;margin:0 auto"></div>
+<p class="mt-12">Analyse du sujet avec l'IA (Docling + Claude)...</p>
+<p class="text-sm text-muted mt-8">Cela peut prendre jusqu'à 30 secondes</p>
+</div>
+<div id="subject-bareme" style="display:none" class="mt-20">
+<div id="bareme-confidence" class="mb-12"></div>
+<div class="flex-between mb-12">
+<h4 style="margin:0">Barème généré — éditable</h4>
+<button class="btn btn-sm btn-secondary" onclick="addBaremeRow()">+ Exercice</button>
+</div>
+<div class="table-wrap">
+<table id="bareme-table">
+<thead><tr><th style="width:60px">Ex</th><th>Énoncé</th><th>Réponse attendue</th><th style="width:100px">Points</th><th style="width:40px"></th></tr></thead>
+<tbody id="bareme-tbody"></tbody>
+</table>
+</div>
+<div class="mt-12 flex-between">
+<div class="text-sm text-muted">Total : <b id="bareme-total">0</b> pts</div>
+<div style="display:flex;gap:10px">
+<button class="btn btn-secondary" onclick="resetSubject()">Annuler</button>
+<button class="btn btn-primary" onclick="validateBareme()">Valider ce barème →</button>
+</div>
+</div>
+</div>
+<div class="mt-20 flex-between">
+<button class="link-btn" onclick="skipSubject()">Saisir manuellement →</button>
+</div>
 </div>
 <!-- Step 1 -->
 <div class="card step-content" id="step-1">

@@ -19,6 +19,7 @@ from backend.routes.students import router as students_router
 from backend.routes.ocr import router as ocr_router
 from backend.routes.grading import router as grading_router
 from backend.routes.reports import router as reports_router
+from backend.routes.subjects import router as subjects_router
 from backend.models.database import get_professor_stats, get_exams_by_professor
 from fastapi import Depends
 
@@ -124,6 +125,7 @@ app.include_router(students_router)
 app.include_router(ocr_router)
 app.include_router(grading_router)
 app.include_router(reports_router)
+app.include_router(subjects_router)
 
 
 # ━━━ Frontend statique ━━━

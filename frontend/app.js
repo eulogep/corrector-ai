@@ -4,6 +4,8 @@ let token = localStorage.getItem('token');
 let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
 let currentExamId = null;
 let ocrData = null;
+let currentSubjectId = null;   // ID du sujet validé (si utilisé)
+let currentBareme = null;       // barème en cours d'édition
 
 // ━━━ API Helper ━━━
 async function api(path, opts = {}) {
@@ -148,11 +150,13 @@ function drawBarChart(canvasId, matieres) {
 }
 
 // ━━━ Correction ━━━
-let currentStep = 1;
+let currentStep = 0;
 
 async function initCorrection() {
-  currentStep = 1; ocrData = null; currentExamId = null;
+  currentStep = 0; ocrData = null; currentExamId = null; currentSubjectId = null; currentBareme = null;
   updateSteps();
+  // Reset étape 0
+  resetSubject();
   // Charger les élèves dans le select
   const data = await api('/api/students/');
   const sel = document.getElementById('corr-student');
@@ -163,6 +167,7 @@ async function initCorrection() {
   document.getElementById('corr-date').value = new Date().toISOString().split('T')[0];
   // Reset exercises
   document.getElementById('exercises-list').innerHTML = '';
+  exerciseCount = 0;
   addExercise(); addExercise();
 }
 
@@ -190,6 +195,155 @@ async function goStep(n) {
     return;
   }
   currentStep = n; updateSteps();
+}
+
+// ━━━ Étape 0 — Import sujet + génération barème IA ━━━
+
+function resetSubject() {
+  currentSubjectId = null; currentBareme = null;
+  const inp = document.getElementById('subject-file-input'); if (inp) inp.value = '';
+  const analyzing = document.getElementById('subject-analyzing'); if (analyzing) analyzing.style.display = 'none';
+  const bareme = document.getElementById('subject-bareme'); if (bareme) bareme.style.display = 'none';
+  const dz = document.getElementById('dropzone-subject'); if (dz) dz.style.display = 'block';
+}
+
+function skipSubject() { goStep(1); }
+
+function handleSubjectFileSelect(e) { if (e.target.files[0]) uploadSubject(e.target.files[0]); }
+
+async function uploadSubject(file) {
+  document.getElementById('dropzone-subject').style.display = 'none';
+  document.getElementById('subject-analyzing').style.display = 'block';
+  document.getElementById('subject-bareme').style.display = 'none';
+
+  const fd = new FormData(); fd.append('file', file);
+  const data = await api('/api/subjects/parse', { method: 'POST', body: fd });
+  document.getElementById('subject-analyzing').style.display = 'none';
+
+  if (!data || data.detail) {
+    toast(data?.detail || "Erreur lors de l'analyse du sujet", 'error');
+    resetSubject();
+    return;
+  }
+  currentBareme = data;
+  renderBareme(data);
+  toast('Barème généré !');
+}
+
+function renderBareme(bareme) {
+  // Badge confiance
+  const conf = typeof bareme.confiance === 'number' ? bareme.confiance : 0;
+  const pct = Math.round(conf * 100);
+  let badgeCls = 'badge-danger', msg = 'Correction manuelle recommandée';
+  if (conf >= 0.85) { badgeCls = 'badge-success'; msg = 'Barème détecté automatiquement'; }
+  else if (conf >= 0.6) { badgeCls = 'badge-warning'; msg = 'Vérifiez les points'; }
+  const matiere = bareme.matiere_detectee || '—';
+  const niveau = bareme.niveau_detecte || '—';
+  document.getElementById('bareme-confidence').innerHTML =
+    `<span class="badge ${badgeCls}">${msg} (${pct}%)</span>
+     <span class="text-sm text-muted" style="margin-left:12px">Matière : <b>${matiere}</b> · Niveau : <b>${niveau}</b></span>
+     ${bareme.remarques ? `<div class="text-sm text-muted mt-8">${bareme.remarques}</div>` : ''}`;
+
+  // Pré-remplir métadonnées correction
+  if (bareme.matiere_detectee && !document.getElementById('corr-matiere').value)
+    document.getElementById('corr-matiere').value = bareme.matiere_detectee;
+  if (bareme.niveau_detecte && !document.getElementById('corr-niveau').value)
+    document.getElementById('corr-niveau').value = bareme.niveau_detecte;
+
+  // Construction des lignes éditables
+  const tbody = document.getElementById('bareme-tbody');
+  tbody.innerHTML = '';
+  (bareme.exercices || []).forEach(ex => addBaremeRow(ex));
+  updateBaremeTotal();
+  document.getElementById('subject-bareme').style.display = 'block';
+}
+
+function addBaremeRow(ex = null) {
+  const tbody = document.getElementById('bareme-tbody');
+  const tr = document.createElement('tr');
+  const numero = ex?.numero ?? (tbody.children.length + 1);
+  tr.innerHTML = `
+    <td><input type="number" class="br-num" value="${numero}" min="1" style="width:55px"></td>
+    <td><textarea class="br-enonce" rows="2">${escapeHtml(ex?.enonce || '')}</textarea></td>
+    <td><textarea class="br-reponse" rows="2">${escapeHtml(ex?.reponse_attendue || '')}</textarea></td>
+    <td><input type="number" class="br-points" value="${ex?.points_max ?? 0}" min="0" step="0.5" style="width:80px" oninput="updateBaremeTotal()"></td>
+    <td><button class="btn btn-sm btn-danger" onclick="this.closest('tr').remove(); updateBaremeTotal();">✕</button></td>`;
+  tbody.appendChild(tr);
+  updateBaremeTotal();
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+function updateBaremeTotal() {
+  let total = 0;
+  document.querySelectorAll('#bareme-tbody .br-points').forEach(i => { total += parseFloat(i.value) || 0; });
+  document.getElementById('bareme-total').textContent = total.toFixed(1);
+}
+
+function collectBaremeRows() {
+  const rows = document.querySelectorAll('#bareme-tbody tr');
+  const exercices = [];
+  rows.forEach(tr => {
+    exercices.push({
+      numero: parseInt(tr.querySelector('.br-num').value || 0),
+      enonce: tr.querySelector('.br-enonce').value || '',
+      reponse_attendue: tr.querySelector('.br-reponse').value || '',
+      points_max: parseFloat(tr.querySelector('.br-points').value || 0),
+      type: 'autre',
+      sous_questions: [],
+    });
+  });
+  return exercices;
+}
+
+async function validateBareme() {
+  const exercices = collectBaremeRows();
+  if (!exercices.length) return toast('Ajoutez au moins un exercice', 'error');
+  const total = exercices.reduce((s, e) => s + (e.points_max || 0), 0);
+  const payload = {
+    matiere: currentBareme?.matiere_detectee || document.getElementById('corr-matiere').value || '',
+    niveau: currentBareme?.niveau_detecte || document.getElementById('corr-niveau').value || '',
+    titre: '',
+    total_points: total,
+    exercices,
+    pdf_path: currentBareme?.pdf_path || '',
+  };
+  const data = await api('/api/subjects/validate', { method: 'POST', body: payload });
+  if (!data || data.detail) return toast(data?.detail || 'Erreur sauvegarde', 'error');
+  currentSubjectId = data.subject_id;
+
+  // Pré-remplir les exercices de l'étape 3 à partir du barème validé
+  prefillExercisesFromBareme(exercices);
+
+  // Pré-remplir note_sur si total cohérent
+  if (total > 0) document.getElementById('corr-notesur').value = total;
+
+  toast('Barème validé — sujet enregistré');
+  goStep(1);
+}
+
+function prefillExercisesFromBareme(exercices) {
+  const list = document.getElementById('exercises-list');
+  list.innerHTML = '';
+  exerciseCount = 0;
+  exercices.forEach((ex, idx) => {
+    addExercise();
+    const n = idx + 1;
+    const enonceEl = document.getElementById(`ex-enonce-${n}`);
+    const attendueEl = document.getElementById(`ex-attendue-${n}`);
+    const ptsEl = document.getElementById(`ex-points-${n}`);
+    if (enonceEl) enonceEl.value = ex.enonce || '';
+    if (attendueEl) attendueEl.value = ex.reponse_attendue || '';
+    if (ptsEl) ptsEl.value = ex.points_max || 0;
+  });
+}
+
+// Drag & drop sujet
+const dzSubj = document.getElementById('dropzone-subject');
+if (dzSubj) {
+  dzSubj.addEventListener('dragover', e => { e.preventDefault(); dzSubj.classList.add('dragover'); });
+  dzSubj.addEventListener('dragleave', () => dzSubj.classList.remove('dragover'));
+  dzSubj.addEventListener('drop', e => { e.preventDefault(); dzSubj.classList.remove('dragover'); if (e.dataTransfer.files[0]) uploadSubject(e.dataTransfer.files[0]); });
 }
 
 // Drag & drop
@@ -259,6 +413,8 @@ async function runGrading() {
     exercices_corrige: corrige,
     reponses_eleve: reponses,
   };
+  // Si un barème a été validé depuis un sujet, on transmet l'ID
+  if (currentSubjectId) body.subject_id = currentSubjectId;
   const data = await api('/api/grading/grade', { method: 'POST', body });
   if (!data || data.detail) { toast(data?.detail || 'Erreur de correction', 'error'); currentStep = 3; updateSteps(); return; }
   currentExamId = data.exam_id;

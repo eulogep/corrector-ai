@@ -97,7 +97,25 @@ def init_db():
                 erreurs_types TEXT DEFAULT '',
                 FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS subjects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                professor_id INTEGER NOT NULL,
+                matiere TEXT DEFAULT '',
+                niveau TEXT DEFAULT '',
+                titre TEXT DEFAULT '',
+                total_points REAL DEFAULT 20,
+                exercices_json TEXT NOT NULL,
+                pdf_path TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (professor_id) REFERENCES professors(id)
+            );
         """)
+        # Migration douce : colonne subject_id dans exams (ignoré si déjà présente)
+        try:
+            conn.execute("ALTER TABLE exams ADD COLUMN subject_id INTEGER DEFAULT NULL")
+        except Exception:
+            pass
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -199,18 +217,19 @@ def delete_student(student_id: int) -> bool:
 def create_exam(student_id: int, professor_id: int, matiere: str, niveau: str,
                 date_examen: str, note_totale: float, note_sur: float,
                 appreciation: str, image_path: str,
-                alerte_anomalie: int = 0, message_anomalie: str = "") -> int:
+                alerte_anomalie: int = 0, message_anomalie: str = "",
+                subject_id: int | None = None) -> int:
     """Insert a new exam and return its ID."""
     with get_db() as conn:
         cursor = conn.execute(
             """INSERT INTO exams
                (student_id, professor_id, matiere, niveau, date_examen,
                 note_totale, note_sur, appreciation, image_path,
-                alerte_anomalie, message_anomalie)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                alerte_anomalie, message_anomalie, subject_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (student_id, professor_id, matiere, niveau, date_examen,
              note_totale, note_sur, appreciation, image_path,
-             alerte_anomalie, message_anomalie)
+             alerte_anomalie, message_anomalie, subject_id)
         )
         return cursor.lastrowid
 
@@ -360,6 +379,74 @@ def get_professor_stats(professor_id: int) -> dict:
             "moyennes_par_matiere": moyennes_par_matiere,
             "recent_exams": recent_exams,
         }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# CRUD — Subjects (sujets d'examen + barème)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def save_subject(professor_id: int, data: dict) -> int:
+    """
+    Save a parsed/validated subject with its barème.
+    data = {matiere, niveau, titre, total_points, exercices (list), pdf_path}
+    """
+    import json as _json
+    exercices_json = _json.dumps(data.get("exercices", []), ensure_ascii=False)
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO subjects
+               (professor_id, matiere, niveau, titre, total_points, exercices_json, pdf_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                professor_id,
+                data.get("matiere", ""),
+                data.get("niveau", ""),
+                data.get("titre", ""),
+                float(data.get("total_points", 20)),
+                exercices_json,
+                data.get("pdf_path", ""),
+            ),
+        )
+        return cursor.lastrowid
+
+
+def get_subject(subject_id: int) -> dict | None:
+    """Fetch a subject by ID, exercices deserialized from JSON."""
+    import json as _json
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM subjects WHERE id = ?", (subject_id,)).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        try:
+            d["exercices"] = _json.loads(d.get("exercices_json") or "[]")
+        except Exception:
+            d["exercices"] = []
+        return d
+
+
+def list_subjects(professor_id: int) -> list:
+    """List all subjects owned by a professor, most recent first."""
+    import json as _json
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, professor_id, matiere, niveau, titre, total_points,
+                      pdf_path, created_at, exercices_json
+               FROM subjects WHERE professor_id = ?
+               ORDER BY created_at DESC""",
+            (professor_id,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                exs = _json.loads(d.get("exercices_json") or "[]")
+            except Exception:
+                exs = []
+            d["nb_exercices"] = len(exs)
+            d.pop("exercices_json", None)
+            result.append(d)
+        return result
 
 
 def get_student_progression(student_id: int) -> dict:

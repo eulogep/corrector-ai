@@ -9,7 +9,7 @@ from backend.auth import get_current_professor
 from backend.models.database import (
     get_student_by_id, get_recent_exams_by_student_matiere,
     create_exam, create_exercise, get_exam_by_id, get_exercises_by_exam,
-    delete_exam,
+    delete_exam, get_subject,
 )
 from backend.services.llm import grade_copy
 
@@ -35,7 +35,8 @@ class GradeRequest(BaseModel):
     date_examen: str = ""
     note_sur: float = 20
     image_path: str = ""
-    exercices_corrige: list[ExerciseCorrige]
+    subject_id: int | None = None
+    exercices_corrige: list[ExerciseCorrige] = []
     reponses_eleve: list[ExerciseReponse]
 
 class QuickGradeRequest(BaseModel):
@@ -59,6 +60,24 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
     if not student or student["professor_id"] != prof["id"]:
         raise HTTPException(status_code=404, detail="Élève non trouvé")
 
+    # Si un subject_id est fourni → charger le barème depuis SQLite
+    # Sinon → utiliser les exercices_corrige fournis manuellement
+    if data.subject_id is not None:
+        subject = get_subject(data.subject_id)
+        if not subject or subject["professor_id"] != prof["id"]:
+            raise HTTPException(status_code=404, detail="Sujet non trouvé")
+        exercices_corrige = [
+            {
+                "numero": ex.get("numero"),
+                "enonce": ex.get("enonce", ""),
+                "reponse_attendue": ex.get("reponse_attendue", ""),
+                "points_max": ex.get("points_max", 0),
+            }
+            for ex in subject.get("exercices", [])
+        ]
+    else:
+        exercices_corrige = [ex.model_dump() for ex in data.exercices_corrige]
+
     # Récupérer l'historique pour détection d'anomalies
     historique = get_recent_exams_by_student_matiere(data.student_id, data.matiere, limit=5)
 
@@ -67,7 +86,7 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
         matiere=data.matiere,
         niveau=data.niveau,
         note_sur=data.note_sur,
-        exercices_corrige=[ex.model_dump() for ex in data.exercices_corrige],
+        exercices_corrige=exercices_corrige,
         reponses_eleve=[r.model_dump() for r in data.reponses_eleve],
         historique=historique,
     )
@@ -85,13 +104,13 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
         image_path=data.image_path,
         alerte_anomalie=1 if result.get("alerte_anomalie") else 0,
         message_anomalie=result.get("message_anomalie", ""),
+        subject_id=data.subject_id,
     )
 
-    # Sauvegarder chaque exercice
+    # Sauvegarder chaque exercice — cherche le corrigé dans la liste unifiée
     for ex in result.get("exercices", []):
-        # Trouver le corrigé et la réponse correspondants
         corrige_match = next(
-            (c for c in data.exercices_corrige if c.numero == ex["numero"]), None
+            (c for c in exercices_corrige if c.get("numero") == ex["numero"]), None
         )
         reponse_match = next(
             (r for r in data.reponses_eleve if r.numero == ex["numero"]), None
@@ -99,9 +118,9 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
         create_exercise(
             exam_id=exam_id,
             numero=ex["numero"],
-            enonce=corrige_match.enonce if corrige_match else "",
+            enonce=corrige_match.get("enonce", "") if corrige_match else "",
             reponse_eleve=reponse_match.reponse_eleve if reponse_match else "",
-            reponse_attendue=corrige_match.reponse_attendue if corrige_match else "",
+            reponse_attendue=corrige_match.get("reponse_attendue", "") if corrige_match else "",
             points_obtenus=ex.get("points_obtenus", 0),
             points_max=ex.get("points_max", 0),
             correct=ex.get("correct", 0),
