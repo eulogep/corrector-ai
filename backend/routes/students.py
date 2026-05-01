@@ -14,6 +14,7 @@ from backend.models.database import (
     update_student, delete_student, get_exams_by_student,
     get_student_progression,
 )
+from backend.services.cache import cache
 
 router = APIRouter(prefix="/api/students", tags=["Élèves"])
 
@@ -53,6 +54,7 @@ async def add_student(data: StudentCreate, prof: dict = Depends(get_current_prof
         email=data.email,
     )
     logger.info(f"Élève créé : {data.prenom} {data.nom} (id={student_id}, classe={data.classe})")
+    cache.delete(f"stats_dashboard_{prof['id']}")
     return {"id": student_id, "message": "Élève créé avec succès"}
 
 

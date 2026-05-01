@@ -15,6 +15,7 @@ from backend.models.database import (
     delete_exam, get_subject,
 )
 from backend.services.llm import grade_copy
+from backend.services.cache import cache
 
 router = APIRouter(prefix="/api/grading", tags=["Correction"])
 
@@ -134,6 +135,7 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
 
     result["exam_id"] = exam_id
     logger.info(f"Correction sauvegardée : exam_id={exam_id}, note={result.get('note_totale')}/{result.get('note_sur')}, llm={result.get('llm_used')}")
+    cache.delete(f"stats_dashboard_{prof['id']}")
     return result
 
 
@@ -175,4 +177,5 @@ async def remove_exam(exam_id: int, prof: dict = Depends(get_current_professor))
         raise HTTPException(status_code=404, detail="Copie non trouvée")
     delete_exam(exam_id)
     logger.info(f"Copie supprimée : exam_id={exam_id} par prof={prof['id']}")
+    cache.delete(f"stats_dashboard_{prof['id']}")
     return {"message": "Copie supprimée"}
