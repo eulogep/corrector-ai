@@ -13,11 +13,14 @@ corrector-ai/
 │   │   ├── ocr.py          # Upload → Gemini Vision OCR
 │   │   ├── grading.py      # Correction Claude/DeepSeek/Mock
 │   │   ├── students.py     # CRUD élèves + progression
+│   │   ├── subjects.py     # Import de barèmes PDF
 │   │   └── reports.py      # PDF ReportLab + email SMTP + CSV
 │   ├── services/
 │   │   ├── vision.py       # Gemini 1.5 Pro Vision + fallback mock
-│   │   └── llm.py          # Claude → DeepSeek → Mock (chaîne de fallback)
-│   └── tests/              # 7 tests pytest (mocks IA)
+│   │   ├── llm.py          # Claude → DeepSeek → Mock (chaîne de fallback)
+│   │   ├── cache.py        # Cache en mémoire avec TTL
+│   │   └── utils.py        # Helpers (validation des uploads)
+│   └── tests/              # 22 tests pytest (mocks IA, uploads)
 ├── frontend/
 │   ├── index.html          # SPA 6 pages (login, dashboard, corriger, élèves, historique, rapports)
 │   ├── style.css           # Design dark premium (Syne + DM Sans)
@@ -54,6 +57,12 @@ Chaque réponse inclut `"llm_used": "claude"|"deepseek"|"mock"`.
 6. RGPD : aucune donnée élève sensible envoyée à l'extérieur
 7. Pas de passlib — utiliser `bcrypt` directement (compat Python 3.14)
 8. Config Render : chemins dynamiques via détection `/data`
+9. **Sécurité native** :
+   - CORS whitelist (Render, localhost)
+   - Rate limiting via `slowapi`
+   - Validation uploads via magic bytes et size limit
+   - CSRF token exigé pour tout appel POST/PUT/DELETE
+10. **Performance** : Utilisation du cache en mémoire avec TTL pour limiter les recalculs (ex: dashboard)
 
 ## Variables d'environnement
 
@@ -63,11 +72,12 @@ Chaque réponse inclut `"llm_used": "claude"|"deepseek"|"mock"`.
 | `ANTHROPIC_API_KEY` | Correction Claude |
 | `DEEPSEEK_API_KEY` | Fallback DeepSeek |
 | `JWT_SECRET_KEY` / `SECRET_KEY` | Tokens JWT |
+| `ALLOWED_ORIGINS` | Whitelist CORS |
 | `SMTP_HOST/USER/PASSWORD` | Envoi email |
 
 ## Tests
 
-- `python -m pytest backend/tests/ -v` → 7/7 (mocks, local)
+- `python -m pytest backend/tests/ -v` → 22/22 (mocks, uploads, validation)
 - `python tests/test_api_live.py` → 15/15 (API Render, live)
 
 ## Patterns retenus des repos sources

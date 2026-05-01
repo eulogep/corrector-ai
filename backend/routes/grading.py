@@ -3,7 +3,10 @@ Routes de correction — envoi au LLM et sauvegarde en base.
 Deux modes : correction complète (avec sauvegarde) et correction rapide (sans).
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, Depends
+
+logger = logging.getLogger("corrector_ai.grading")
 from pydantic import BaseModel
 from backend.auth import get_current_professor
 from backend.models.database import (
@@ -12,6 +15,7 @@ from backend.models.database import (
     delete_exam, get_subject,
 )
 from backend.services.llm import grade_copy
+from backend.services.cache import cache
 
 router = APIRouter(prefix="/api/grading", tags=["Correction"])
 
@@ -82,6 +86,7 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
     historique = get_recent_exams_by_student_matiere(data.student_id, data.matiere, limit=5)
 
     # Appeler le LLM
+    logger.info(f"Correction complète lancée : élève={data.student_id}, matière={data.matiere}")
     result = await grade_copy(
         matiere=data.matiere,
         niveau=data.niveau,
@@ -129,6 +134,8 @@ async def grade_full(data: GradeRequest, prof: dict = Depends(get_current_profes
         )
 
     result["exam_id"] = exam_id
+    logger.info(f"Correction sauvegardée : exam_id={exam_id}, note={result.get('note_totale')}/{result.get('note_sur')}, llm={result.get('llm_used')}")
+    cache.delete(f"stats_dashboard_{prof['id']}")
     return result
 
 
@@ -138,6 +145,7 @@ async def grade_quick(data: QuickGradeRequest, prof: dict = Depends(get_current_
     Quick grading: grade with AI but DON'T save to database.
     Useful for testing or preview.
     """
+    logger.info(f"Correction rapide : matière={data.matiere}")
     result = await grade_copy(
         matiere=data.matiere,
         niveau=data.niveau,
@@ -168,4 +176,6 @@ async def remove_exam(exam_id: int, prof: dict = Depends(get_current_professor))
     if not exam or exam["professor_id"] != prof["id"]:
         raise HTTPException(status_code=404, detail="Copie non trouvée")
     delete_exam(exam_id)
+    logger.info(f"Copie supprimée : exam_id={exam_id} par prof={prof['id']}")
+    cache.delete(f"stats_dashboard_{prof['id']}")
     return {"message": "Copie supprimée"}

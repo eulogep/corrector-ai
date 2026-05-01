@@ -6,7 +6,10 @@ Utilise ReportLab pour le PDF et smtplib pour l'email.
 import os
 import io
 import csv
+import logging
 import smtplib
+
+logger = logging.getLogger("corrector_ai.reports")
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
@@ -138,6 +141,7 @@ async def download_pdf(exam_id: int, prof: dict = Depends(get_current_professor)
         raise HTTPException(status_code=404, detail="Copie non trouvée")
     exercises = get_exercises_by_exam(exam_id)
     filepath = _generate_pdf(exam, exercises)
+    logger.info(f"PDF généré : {filepath} pour exam_id={exam_id}")
     return FileResponse(
         filepath,
         media_type="application/pdf",
@@ -188,6 +192,7 @@ async def send_email_report(data: EmailRequest, prof: dict = Depends(get_current
         return {"message": f"Email envoyé à {data.to_email}"}
 
     except Exception as e:
+        logger.error(f"Erreur envoi email à {data.to_email} : {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erreur d'envoi email : {str(e)}")
 
 

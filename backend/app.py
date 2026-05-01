@@ -5,23 +5,45 @@ Sert aussi le frontend statique.
 """
 
 import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend.config import HOST, PORT, DEBUG
+# Patch Starlette Config AVANT d'importer slowapi
+# (slowapi utilise Config() qui lit .env avec encodage par défaut — crash sur Windows)
+import starlette.config
+_OrigConfig = starlette.config.Config
+class _SafeConfig(_OrigConfig):
+    def __init__(self, env_file=starlette.config.undefined, **kwargs):
+        super().__init__(env_file=None, **kwargs)
+starlette.config.Config = _SafeConfig
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+starlette.config.Config = _OrigConfig
+from backend.config import (
+    HOST, PORT, DEBUG, ALLOWED_ORIGINS,
+    RATE_LIMIT_AUTH, RATE_LIMIT_AI, RATE_LIMIT_DEFAULT,
+)
 from backend.auth import hash_password, verify_password, create_token, get_current_professor
 from backend.models.database import init_db, create_professor, get_professor_by_email
 from backend.routes.students import router as students_router
 from backend.routes.ocr import router as ocr_router
 from backend.routes.grading import router as grading_router
 from backend.routes.reports import router as reports_router
-from backend.routes.subjects import router as subjects_router
 from backend.models.database import get_professor_stats, get_exams_by_professor
 from fastapi import Depends
+
+logger = logging.getLogger("corrector_ai.app")
+
+# ━━━ Rate limiter ━━━
+limiter = Limiter(key_func=get_remote_address, default_limits=[RATE_LIMIT_DEFAULT])
 
 
 # ━━━ Lifespan — init DB au démarrage ━━━
@@ -29,6 +51,8 @@ from fastapi import Depends
 async def lifespan(app: FastAPI):
     """Initialize the database on startup."""
     init_db()
+    logger.info("Base de données initialisée")
+    logger.info(f"CORS origines autorisées : {ALLOWED_ORIGINS}")
     yield
 
 
@@ -40,10 +64,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ━━━ CORS ━━━
+# Attacher le limiter à l'app
+app.state.limiter = limiter
+
+
+# Handler personnalisé pour les 429
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Return a French 429 error message."""
+    logger.warning(f"Rate limit atteint pour {get_remote_address(request)}")
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Trop de requêtes. Veuillez patienter avant de réessayer.",
+            "retry_after": str(exc.detail),
+        },
+    )
+
+
+# ━━━ CORS — origines restreintes ━━━
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,7 +106,8 @@ class LoginRequest(BaseModel):
 
 
 @app.post("/api/auth/register", tags=["Auth"])
-async def register(data: RegisterRequest):
+@limiter.limit(RATE_LIMIT_AUTH)
+async def register(request: Request, data: RegisterRequest):
     """Register a new professor account."""
     # Vérifier si l'email existe déjà
     existing = get_professor_by_email(data.email)
@@ -74,6 +117,7 @@ async def register(data: RegisterRequest):
     password_hash = hash_password(data.password)
     prof_id = create_professor(data.nom, data.prenom, data.email, password_hash)
     token = create_token(prof_id, data.email)
+    logger.info(f"Nouveau professeur inscrit : {data.email} (id={prof_id})")
 
     return {
         "id": prof_id,
@@ -83,13 +127,16 @@ async def register(data: RegisterRequest):
 
 
 @app.post("/api/auth/login", tags=["Auth"])
-async def login(data: LoginRequest):
+@limiter.limit(RATE_LIMIT_AUTH)
+async def login(request: Request, data: LoginRequest):
     """Login and get a JWT token."""
     prof = get_professor_by_email(data.email)
     if not prof or not verify_password(data.password, prof["password_hash"]):
+        logger.warning(f"Tentative de connexion échouée : {data.email}")
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
     token = create_token(prof["id"], prof["email"])
+    logger.info(f"Connexion réussie : {data.email} (id={prof['id']})")
     return {
         "id": prof["id"],
         "token": token,
@@ -102,15 +149,19 @@ async def login(data: LoginRequest):
 # ━━━ Stats dashboard ━━━
 
 @app.get("/api/stats/dashboard", tags=["Stats"])
-async def dashboard_stats(prof: dict = Depends(get_current_professor)):
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def dashboard_stats(request: Request, prof: dict = Depends(get_current_professor)):
     """Get dashboard metrics for the connected professor."""
+    logger.info(f"Dashboard consulté par prof={prof['id']}")
     return get_professor_stats(prof["id"])
 
 
 # ━━━ Historique copies (filtres) ━━━
 
 @app.get("/api/exams", tags=["Copies"])
+@limiter.limit(RATE_LIMIT_DEFAULT)
 async def list_exams(
+    request: Request,
     limit: int = 50,
     offset: int = 0,
     prof: dict = Depends(get_current_professor),
@@ -125,7 +176,13 @@ app.include_router(students_router)
 app.include_router(ocr_router)
 app.include_router(grading_router)
 app.include_router(reports_router)
-app.include_router(subjects_router)
+
+# Charger le router subjects seulement s'il existe
+try:
+    from backend.routes.subjects import router as subjects_router
+    app.include_router(subjects_router)
+except ImportError:
+    pass
 
 
 # ━━━ Frontend statique ━━━

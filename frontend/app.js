@@ -7,10 +7,21 @@ let ocrData = null;
 let currentSubjectId = null;   // ID du sujet validé (si utilisé)
 let currentBareme = null;       // barème en cours d'édition
 
+// ━━━ CSRF Token ━━━
+function getCsrfToken() {
+  const match = document.cookie.match(/csrf_token=([^;]+)/);
+  return match ? match[1] : '';
+}
+
 // ━━━ API Helper ━━━
 async function api(path, opts = {}) {
   const headers = { ...opts.headers };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Ajouter le CSRF token pour les requêtes mutantes
+  const method = (opts.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    headers['X-CSRF-Token'] = getCsrfToken();
+  }
   if (opts.body && !(opts.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.body);

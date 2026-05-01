@@ -5,10 +5,19 @@ Détecte automatiquement si on tourne en local ou sur Render.
 """
 
 import os
+import logging
 from dotenv import load_dotenv
 
 # Charger le .env depuis la racine du projet (local uniquement)
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
+# ━━━ Logging structuré ━━━
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+logger = logging.getLogger("corrector_ai")
 
 # ━━━ Clés API ━━━
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -24,6 +33,12 @@ JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# ━━━ CORS — origines autorisées ━━━
+_default_origins = "https://corrector-ai.onrender.com,http://localhost:8000,http://localhost:3000"
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()
+]
 
 # ━━━ SMTP ━━━
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -53,4 +68,10 @@ for d in [DATA_DIR, UPLOADS_DIR, REPORTS_DIR]:
 
 # ━━━ Formats acceptés pour les images ━━━
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# ━━━ Rate limiting ━━━
+RATE_LIMIT_AUTH = os.getenv("RATE_LIMIT_AUTH", "5/minute")
+RATE_LIMIT_AI = os.getenv("RATE_LIMIT_AI", "10/minute")
+RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "60/minute")
