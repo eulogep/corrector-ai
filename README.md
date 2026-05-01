@@ -7,7 +7,7 @@
 ![Claude](https://img.shields.io/badge/Claude-Opus_4.5-D4A853?style=for-the-badge&logo=anthropic&logoColor=white)
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-Fallback-1A1A2E?style=for-the-badge)
 ![Gemini](https://img.shields.io/badge/Gemini-Vision-4285F4?style=for-the-badge&logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-7%2F7_✅-22C55E?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-15%2F15_✅-22C55E?style=for-the-badge)
 ![RGPD](https://img.shields.io/badge/RGPD-Conforme-6366F1?style=for-the-badge)
 ![License](https://img.shields.io/badge/Licence-MIT-F59E0B?style=for-the-badge)
 
@@ -72,21 +72,26 @@ Corrector AI automatise tout le pipeline de correction :
 corrector-ai/
 ├── backend/
 │   ├── app.py              # FastAPI — 19 endpoints
-│   ├── auth.py             # JWT (register / login)
-│   ├── config.py           # Variables d'environnement
+│   ├── auth.py             # JWT + bcrypt
+│   ├── config.py           # Auto-détection Render (/data) vs local
 │   ├── models/
 │   │   └── database.py     # SQLite — 4 tables
 │   ├── routes/
 │   │   ├── ocr.py          # Upload image → OCR Gemini
-│   │   ├── grading.py      # Correction Claude
+│   │   ├── grading.py      # Correction Claude/DeepSeek
 │   │   ├── students.py     # CRUD élèves + progression
 │   │   └── reports.py      # PDF + email + CSV
 │   ├── services/
 │   │   ├── vision.py       # Gemini 1.5 Pro Vision
-│   │   └── llm.py          # Claude Opus 4.5
-│   └── tests/              # 7/7 tests ✅
-└── frontend/
-    └── index.html          # SPA vanille JS — 6 pages
+│   │   └── llm.py          # Claude → DeepSeek → Mock
+│   └── tests/              # 7/7 tests pytest ✅
+├── frontend/
+│   ├── index.html          # SPA vanille JS — 6 pages
+│   ├── style.css           # Design dark premium
+│   └── app.js              # Logique SPA + graphiques Canvas
+├── tests/
+│   └── test_api_live.py    # 15/15 tests API live ✅
+└── render.yaml             # Config déploiement Render
 ```
 
 ---
@@ -120,19 +125,27 @@ python -m backend.app
 |---|---|:---:|
 | `GEMINI_API_KEY` | Clé Google Gemini | Non (mode mock) |
 | `ANTHROPIC_API_KEY` | Clé Anthropic Claude | Non (mode mock) |
+| `DEEPSEEK_API_KEY` | Clé DeepSeek (fallback) | Non |
 | `JWT_SECRET_KEY` | Secret pour les tokens JWT | **Oui** |
 | `SMTP_HOST/USER/PASSWORD` | Config email | Non |
 
 > 💡 **Mode mock** : sans clés API, l'app tourne avec des réponses simulées — parfait pour tester l'UI.
+>
+> 🔄 **Chaîne LLM** : Claude → DeepSeek → Mock. Le premier disponible est utilisé.
 
 ---
 
 ## 🧪 Tests
 
 ```bash
+# Tests unitaires (mocks)
 cd corrector-ai
 python -m pytest backend/tests/ -v
-# 7 tests, 0 failing ✅
+# 7/7 ✅
+
+# Tests API live (Render)
+python tests/test_api_live.py
+# 15/15 ✅ — Auth, Élèves, OCR, Correction, PDF, Nettoyage
 ```
 
 ---
@@ -192,22 +205,26 @@ python -m pytest backend/tests/ -v
 | **Backend** | Python 3.11 + FastAPI + Uvicorn |
 | **Base de données** | SQLite (natif — RGPD) |
 | **OCR** | Google Gemini 1.5 Pro Vision |
-| **LLM** | Anthropic Claude Opus 4.5 |
+| **LLM** | Claude → DeepSeek (fallback) → Mock |
 | **PDF** | ReportLab |
-| **Auth** | JWT (python-jose) |
+| **Auth** | JWT (python-jose) + bcrypt |
 | **Frontend** | HTML / CSS / JS vanille (SPA) |
+| **Déploiement** | Render (disque persistant 1 GB) |
 
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] Déploiement Railway / Render (URL publique)
+- [x] Déploiement Render (URL publique) ✅
+- [x] Fallback multi-LLM (Claude → DeepSeek → Mock) ✅
+- [x] Tests API live automatisés (15/15) ✅
 - [ ] Application mobile (React Native)
 - [ ] Import CSV liste élèves
 - [ ] Graphiques de progression (Chart.js avancé)
 - [ ] Support multi-classes
 - [ ] Mode hors-ligne (modèle OCR local)
 - [ ] Intégration ENT (Pronote, EcoleDirecte)
+- [ ] OCR avancé avec Docling (IBM)
 
 ---
 
