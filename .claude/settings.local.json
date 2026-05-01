@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from backend.services.subject_parser import parse_subject; print\\('OK'\\)\")",
+      "Bash(python -c \"import fitz; print\\('pymupdf OK', fitz.__doc__[:40]\\)\")",
+      "Bash(python -c \"from docling.document_converter import DocumentConverter; print\\('docling OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest backend/tests/ -v)",
+      "Bash(node -c frontend/app.js)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
+    ]
+  }
+}
