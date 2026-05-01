@@ -3,7 +3,10 @@ Routes CRUD pour la gestion des élèves.
 Toutes les opérations sont filtrées par le professeur connecté (JWT).
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, Depends
+
+logger = logging.getLogger("corrector_ai.students")
 from pydantic import BaseModel
 from backend.auth import get_current_professor
 from backend.models.database import (
@@ -49,6 +52,7 @@ async def add_student(data: StudentCreate, prof: dict = Depends(get_current_prof
         classe=data.classe,
         email=data.email,
     )
+    logger.info(f"Élève créé : {data.prenom} {data.nom} (id={student_id}, classe={data.classe})")
     return {"id": student_id, "message": "Élève créé avec succès"}
 
 
