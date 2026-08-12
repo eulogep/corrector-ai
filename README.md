@@ -83,7 +83,7 @@ corrector-ai/
 │   │   └── reports.py      # PDF + email + CSV
 │   ├── services/
 │   │   ├── vision.py       # Gemini 1.5 Pro Vision
-│   │   └── llm.py          # Claude → DeepSeek → Mock
+│   │   └── llm.py          # Claude → DeepSeek → erreurs explicites
 │   └── tests/              # 7/7 tests pytest ✅
 ├── frontend/
 │   ├── index.html          # SPA vanille JS — 6 pages
@@ -123,15 +123,15 @@ python -m backend.app
 
 | Variable | Description | Requis |
 |---|---|:---:|
-| `GEMINI_API_KEY` | Clé Google Gemini | Non (mode mock) |
-| `ANTHROPIC_API_KEY` | Clé Anthropic Claude | Non (mode mock) |
-| `DEEPSEEK_API_KEY` | Clé DeepSeek (fallback) | Non |
+| `GEMINI_API_KEY` | Clé Google Gemini pour l'OCR | Oui pour les endpoints OCR |
+| `ANTHROPIC_API_KEY` | Clé Anthropic Claude pour le barème et la correction principale | Oui, ou DeepSeek pour la correction |
+| `DEEPSEEK_API_KEY` | Clé DeepSeek de repli pour la correction | Recommandée |
 | `JWT_SECRET_KEY` | Secret pour les tokens JWT | **Oui** |
 | `SMTP_HOST/USER/PASSWORD` | Config email | Non |
 
-> 💡 **Mode mock** : sans clés API, l'app tourne avec des réponses simulées — parfait pour tester l'UI.
+> **Aucune note ni transcription simulée** : sans clé de fournisseur, les endpoints IA retournent une erreur HTTP `503` structurée. Cela évite qu'un résultat de démonstration soit confondu avec une correction réelle.
 >
-> 🔄 **Chaîne LLM** : Claude → DeepSeek → Mock. Le premier disponible est utilisé.
+> 🔄 **Chaîne LLM** : Claude → DeepSeek. Le premier fournisseur disponible produisant un JSON strictement valide est utilisé ; si tous échouent, l'API répond avec une erreur explicite.
 
 ---
 

@@ -1,6 +1,6 @@
 """
 Routes OCR — upload d'image et extraction de texte manuscrit.
-Utilise Gemini Vision avec fallback mock.
+Utilise Gemini Vision avec validation stricte et erreurs contrôlées.
 """
 
 import os
@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from backend.auth import get_current_professor
 from backend.config import UPLOADS_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE
 from backend.services.vision import extract_text_structured, extract_text_simple
+from backend.services.exceptions import AIServiceError
 
 router = APIRouter(prefix="/api/ocr", tags=["OCR"])
 
@@ -51,8 +52,10 @@ async def ocr_extract(
         result = await extract_text_structured(filepath)
         result["image_path"] = filepath
         return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur OCR : {str(e)}")
+    except AIServiceError:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erreur interne lors du traitement OCR.")
 
 
 @router.post("/simple")
@@ -67,5 +70,7 @@ async def ocr_simple(
     try:
         text = await extract_text_simple(filepath)
         return {"text": text, "image_path": filepath}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur OCR : {str(e)}")
+    except AIServiceError:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erreur interne lors du traitement OCR.")

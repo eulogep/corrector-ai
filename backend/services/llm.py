@@ -1,26 +1,38 @@
+"""Service de correction via LLM.
+
+Les réponses de Claude et DeepSeek sont validées contre un contrat strict avant toute
+sauvegarde. Si aucun fournisseur ne peut produire une correction valide, l'API renvoie
+une erreur explicite : elle ne génère jamais de note simulée.
 """
-Service de correction via LLM (Claude → DeepSeek → Mock).
-Compare les réponses de l'élève au corrigé type et attribue les points.
-Intègre l'historique pour la détection d'anomalies.
-Fallback : Claude d'abord, puis DeepSeek si indisponible, puis mock.
-"""
+
+from __future__ import annotations
 
 import json
-from backend.config import ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
+from typing import Awaitable, Callable
 
-# Prompt système pour la correction — français
+from backend.config import ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
+from backend.schemas.ai_outputs import (
+    GradingResult,
+    decode_json_response,
+    validate_grading_result,
+)
+from backend.services.exceptions import (
+    AIConfigurationError,
+    AIProviderUnavailableError,
+    AIServiceError,
+    CorrectionInputError,
+)
+
+
 SYSTEM_PROMPT = """Tu es Corrector AI, un assistant pédagogique expert du système éducatif français.
 Tu corriges des copies d'élèves en comparant leurs réponses au corrigé officiel du professeur.
 
-Tu dois :
-1. Évaluer chaque exercice individuellement
-2. Attribuer les points selon le barème
-3. Fournir un feedback pédagogique constructif et bienveillant
-4. Détecter les erreurs types récurrentes
-5. Rédiger une appréciation globale style bulletin français
-6. Détecter toute anomalie par rapport à l'historique de l'élève
+Tu dois évaluer chaque exercice individuellement, attribuer les points du barème, fournir
+un feedback constructif et bienveillant, relever les erreurs récurrentes et rédiger une
+appréciation globale. N'invente jamais de réponse élève, de critère de barème ou de note.
 
-IMPORTANT : Retourne UNIQUEMENT un JSON valide, sans markdown, sans commentaires."""
+Tu retournes uniquement un JSON strictement conforme au contrat demandé, sans Markdown,
+sans commentaire et sans clé supplémentaire."""
 
 GRADING_TEMPLATE = """
 Corrige cette copie d'élève.
@@ -40,21 +52,22 @@ Corrige cette copie d'élève.
 {historique}
 
 ## Consignes de notation
-- Barème français : notes sur {note_sur}
-- Sois juste mais bienveillant : l'élève est en apprentissage
-- Pour chaque exercice, indique les points obtenus, le feedback, et les erreurs types
-- Détecte si la note est anormalement haute (+3 pts au-dessus de la moyenne habituelle)
-  ou si le style de raisonnement est très différent de l'habituel
+- Respecte strictement les points maximum fournis, exercice par exercice.
+- Le total de "points_obtenus" doit être exactement égal à "note_totale".
+- La note totale doit être comprise entre 0 et {note_sur}.
+- Couvre tous les exercices, exactement une fois, sans en ajouter.
+- "correct" est un booléen JSON : true ou false, jamais 0 ou 1.
+- Signale une anomalie seulement si elle est étayée par l'historique fourni.
 
-Retourne ce JSON exact :
+Retourne exactement ce JSON :
 {{
   "exercices": [
     {{
       "numero": 1,
       "points_obtenus": 3.5,
       "points_max": 5,
-      "correct": 0,
-      "feedback": "Bonne compréhension du théorème mais erreur de calcul...",
+      "correct": false,
+      "feedback": "Bonne compréhension du théorème, mais erreur de calcul.",
       "erreurs_types": "Erreur de signe dans la soustraction"
     }}
   ],
@@ -67,47 +80,52 @@ Retourne ce JSON exact :
 """
 
 
-def _build_prompt(matiere, niveau, note_sur, exercices_corrige, reponses_eleve, historique):
-    """Build the grading prompt from inputs."""
-    corrige_text = "\n".join([
-        f"Exercice {ex['numero']} ({ex.get('points_max', '?')} pts) : {ex.get('enonce', '')} → Réponse attendue : {ex['reponse_attendue']}"
-        for ex in exercices_corrige
-    ])
-    reponses_text = "\n".join([
-        f"Exercice {r['numero']} : {r['reponse_eleve']}"
-        for r in reponses_eleve
-    ])
-    if historique:
-        hist_text = "\n".join([
-            f"- {h.get('date_examen', '?')} : {h.get('note_totale', '?')}/{h.get('note_sur', 20)}"
-            for h in historique
-        ])
-    else:
-        hist_text = "Pas d'historique disponible (première copie)"
-
+def _build_prompt(
+    matiere: str,
+    niveau: str,
+    note_sur: float,
+    exercices_corrige: list[dict],
+    reponses_eleve: list[dict],
+    historique: list[dict] | None,
+) -> str:
+    """Construire le prompt à partir des données contrôlées par l'application."""
+    corrige_text = "\n".join(
+        f"Exercice {exercise['numero']} ({exercise.get('points_max', '?')} pts) : "
+        f"{exercise.get('enonce', '')} → Réponse attendue : {exercise['reponse_attendue']}"
+        for exercise in exercices_corrige
+    )
+    reponses_text = "\n".join(
+        f"Exercice {answer['numero']} : {answer['reponse_eleve']}"
+        for answer in reponses_eleve
+    )
+    historique_text = (
+        "\n".join(
+            f"- {item.get('date_examen', '?')} : "
+            f"{item.get('note_totale', '?')}/{item.get('note_sur', 20)}"
+            for item in historique
+        )
+        if historique
+        else "Pas d'historique disponible (première copie)."
+    )
     return GRADING_TEMPLATE.format(
-        matiere=matiere, niveau=niveau, note_sur=note_sur,
-        corrige=corrige_text, reponses_eleve=reponses_text, historique=hist_text,
+        matiere=matiere,
+        niveau=niveau,
+        note_sur=note_sur,
+        corrige=corrige_text,
+        reponses_eleve=reponses_text,
+        historique=historique_text,
     )
 
 
-def _parse_llm_response(text: str) -> dict:
-    """Parse JSON from LLM response, stripping markdown fences if present."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-    return json.loads(text)
-
-
-async def _grade_with_claude(prompt: str) -> dict | None:
-    """Try grading with Claude. Returns None on failure."""
+async def _grade_with_claude(prompt: str) -> GradingResult:
+    """Obtenir une correction de Claude, puis valider strictement son JSON."""
     if not ANTHROPIC_API_KEY:
-        return None
+        raise AIConfigurationError(
+            "claude", "ANTHROPIC_API_KEY n'est pas configurée pour la correction."
+        )
     try:
         import anthropic
+
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -116,42 +134,72 @@ async def _grade_with_claude(prompt: str) -> dict | None:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
         )
-        return _parse_llm_response(response.content[0].text)
-    except Exception as e:
-        print(f"[LLM] Claude échoué : {e}")
-        return None
+        text = response.content[0].text
+    except Exception as exc:
+        raise AIProviderUnavailableError(
+            "claude", "Le fournisseur Claude est indisponible ou a rejeté la requête."
+        ) from exc
+
+    return decode_json_response(text, GradingResult, provider="claude")
 
 
-async def _grade_with_deepseek(prompt: str) -> dict | None:
-    """Try grading with DeepSeek (API compatible OpenAI). Returns None on failure."""
+async def _grade_with_deepseek(prompt: str) -> GradingResult:
+    """Obtenir une correction de DeepSeek, puis valider strictement son JSON."""
     if not DEEPSEEK_API_KEY:
-        return None
+        raise AIConfigurationError(
+            "deepseek", "DEEPSEEK_API_KEY n'est pas configurée pour la correction."
+        )
     try:
         import httpx
-        response = httpx.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.1,
-                "max_tokens": 4096,
-            },
-            timeout=60,
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.deepseek.com/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 4096,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["choices"][0]["message"]["content"]
+    except Exception as exc:
+        raise AIProviderUnavailableError(
+            "deepseek", "Le fournisseur DeepSeek est indisponible ou a rejeté la requête."
+        ) from exc
+
+    return decode_json_response(text, GradingResult, provider="deepseek")
+
+
+def _validate_requested_scale(exercices_corrige: list[dict], note_sur: float) -> None:
+    """Éviter d'envoyer au fournisseur un barème incohérent."""
+    if not exercices_corrige:
+        raise CorrectionInputError("correction", "Le barème de correction est vide.")
+
+    numeros = [exercise.get("numero") for exercise in exercices_corrige]
+    if any(not isinstance(numero, int) or numero < 1 for numero in numeros):
+        raise CorrectionInputError("correction", "Le barème contient un numéro d'exercice invalide.")
+    if len(numeros) != len(set(numeros)):
+        raise CorrectionInputError("correction", "Le barème contient des numéros d'exercice dupliqués.")
+
+    try:
+        total = round(sum(float(exercise["points_max"]) for exercise in exercices_corrige), 2)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CorrectionInputError("correction", "Le barème contient un maximum de points invalide.") from exc
+
+    if total <= 0 or abs(total - note_sur) > 0.01:
+        raise CorrectionInputError(
+            "correction", "La somme du barème doit correspondre exactement à la note demandée."
         )
-        response.raise_for_status()
-        data = response.json()
-        text = data["choices"][0]["message"]["content"]
-        return _parse_llm_response(text)
-    except Exception as e:
-        print(f"[LLM] DeepSeek échoué : {e}")
-        return None
 
 
 async def grade_copy(
@@ -162,51 +210,41 @@ async def grade_copy(
     reponses_eleve: list[dict],
     historique: list[dict] | None = None,
 ) -> dict:
-    """
-    Grade a student's copy using LLM.
-    Fallback chain: Claude → DeepSeek → Mock.
-    """
-    prompt = _build_prompt(matiere, niveau, note_sur, exercices_corrige, reponses_eleve, historique)
+    """Corriger une copie avec le premier fournisseur disponible produisant une sortie valide."""
+    _validate_requested_scale(exercices_corrige, note_sur)
+    prompt = _build_prompt(
+        matiere, niveau, note_sur, exercices_corrige, reponses_eleve, historique
+    )
 
-    # 1. Essayer Claude
-    result = await _grade_with_claude(prompt)
-    if result:
-        result["llm_used"] = "claude"
-        return result
+    providers: list[tuple[str, Callable[[str], Awaitable[GradingResult]]]] = []
+    if ANTHROPIC_API_KEY:
+        providers.append(("claude", _grade_with_claude))
+    if DEEPSEEK_API_KEY:
+        providers.append(("deepseek", _grade_with_deepseek))
 
-    # 2. Fallback DeepSeek
-    result = await _grade_with_deepseek(prompt)
-    if result:
-        result["llm_used"] = "deepseek"
-        return result
+    if not providers:
+        raise AIConfigurationError(
+            "correction",
+            "Aucun fournisseur de correction n'est configuré. Configurez ANTHROPIC_API_KEY ou DEEPSEEK_API_KEY.",
+        )
 
-    # 3. Fallback mock
-    return _mock_grading(exercices_corrige, reponses_eleve, note_sur)
+    failures: list[AIServiceError] = []
+    for provider_name, provider in providers:
+        try:
+            result = await provider(prompt)
+            result = validate_grading_result(result, exercices_corrige, note_sur)
+            payload = result.model_dump()
+            payload["llm_used"] = provider_name
+            return payload
+        except AIServiceError as exc:
+            failures.append(exc)
 
+    invalid_output = next(
+        (error for error in failures if error.code == "ai_invalid_response"), None
+    )
+    if invalid_output:
+        raise invalid_output
 
-def _mock_grading(exercices_corrige: list, reponses_eleve: list, note_sur: float, error: str = "") -> dict:
-    """Return mock grading when no LLM is available."""
-    exercices = []
-    total = 0
-    for ex in exercices_corrige:
-        pts_max = ex.get("points_max", 5)
-        pts = round(pts_max * 0.7, 1)
-        total += pts
-        exercices.append({
-            "numero": ex["numero"],
-            "points_obtenus": pts,
-            "points_max": pts_max,
-            "correct": 0 if pts < pts_max else 1,
-            "feedback": f"[Mode mock] Correction automatique exercice {ex['numero']}.",
-            "erreurs_types": "",
-        })
-    return {
-        "exercices": exercices,
-        "note_totale": round(total, 1),
-        "note_sur": note_sur,
-        "appreciation": "[Mode mock] Copie corrigée sans IA. Configurez ANTHROPIC_API_KEY ou DEEPSEEK_API_KEY.",
-        "alerte_anomalie": False,
-        "message_anomalie": "",
-        "mock": True,
-        "llm_used": "mock",
-    }
+    raise AIProviderUnavailableError(
+        "correction", "Aucun fournisseur de correction n'a pu fournir une réponse exploitable."
+    ) from failures[-1]

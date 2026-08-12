@@ -1,30 +1,30 @@
-"""
-Service d'extraction automatique de barème depuis un sujet PDF/DOCX/image.
-Pipeline : Docling (extraction) → Claude (génération barème JSON).
-Fallbacks : Docling → PyMuPDF → Gemini Vision (si PDF scanné).
+"""Extraction de texte et génération de barème depuis un sujet d'examen.
+
+Pipeline : Docling → PyMuPDF → Gemini Vision, puis Claude. Les sorties IA doivent
+respecter un contrat Pydantic strict ; aucun barème fictif n'est jamais généré.
 """
 
-import json
+from __future__ import annotations
+
 import os
+
 from backend.config import ANTHROPIC_API_KEY
+from backend.schemas.ai_outputs import SubjectRubric, decode_json_response
+from backend.services.exceptions import (
+    AIConfigurationError,
+    AIProviderUnavailableError,
+    SubjectExtractionError,
+)
 
 
-# Prompt Claude — français, JSON strict
-BAREME_PROMPT_TEMPLATE = """Voici le sujet d'examen extrait par OCR (source : {source}) :
+BAREME_PROMPT_TEMPLATE = """Voici le texte d'un sujet d'examen, extrait depuis {source} :
 
 ---
 {texte}
 ---
 
-Ta mission :
-1. Identifier la matière et le niveau scolaire
-2. Extraire TOUS les exercices et questions
-3. Pour chaque exercice : numéro, énoncé complet, réponse attendue si visible,
-   points (ou proposer une répartition équitable sur 20 points)
-4. Calculer un score de confiance (0.0 à 1.0) selon la clarté du sujet
-5. Retourner UNIQUEMENT le JSON (pas de markdown, pas de commentaires)
-
-Format JSON exact attendu :
+Ta mission est d'identifier la matière et le niveau, puis d'extraire tous les exercices.
+Retourne uniquement un objet JSON valide respectant exactement ce contrat :
 {{
   "matiere_detectee": "...",
   "niveau_detecte": "...",
@@ -36,172 +36,118 @@ Format JSON exact attendu :
       "reponse_attendue": "...",
       "points_max": 5,
       "sous_questions": [],
-      "type": "calcul|redaction|qcm|schema|autre"
+      "type": "calcul"
     }}
   ],
   "confiance": 0.9,
   "remarques": "..."
 }}
+
+Contraintes impératives :
+- "type" vaut exactement calcul, redaction, qcm, schema ou autre.
+- Chaque numéro d'exercice est entier, positif et unique.
+- Chaque énoncé est non vide.
+- "confiance" est comprise entre 0 et 1.
+- La somme exacte de "points_max" doit être égale à "total_points".
+- N'ajoute aucune clé, aucune balise Markdown et aucune explication hors JSON.
 """
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ÉTAPE 1 — Extraction texte depuis fichier
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 def _extract_with_docling(file_path: str) -> str:
-    """Extract text using IBM Docling. Returns markdown string."""
+    """Extraire la structure et le texte via IBM Docling."""
     from docling.document_converter import DocumentConverter
+
     converter = DocumentConverter()
     result = converter.convert(file_path)
     return result.document.export_to_markdown()
 
 
 def _extract_with_pymupdf(file_path: str) -> str:
-    """Fallback extraction with PyMuPDF (text-only, fast)."""
-    import fitz  # pymupdf
-    doc = fitz.open(file_path)
-    texte = " ".join([page.get_text() for page in doc])
-    doc.close()
-    return texte
+    """Extraire rapidement le texte natif d'un PDF avec PyMuPDF."""
+    import fitz
+
+    document = fitz.open(file_path)
+    try:
+        return " ".join(page.get_text() for page in document)
+    finally:
+        document.close()
 
 
 async def _extract_with_gemini(file_path: str) -> str:
-    """Last-resort fallback: OCR via Gemini Vision for scanned PDFs."""
+    """Utiliser l'OCR Gemini comme dernier recours pour un sujet scanné."""
     from backend.services.vision import extract_text_simple
+
     return await extract_text_simple(file_path)
 
 
 async def _extract_text(file_path: str) -> tuple[str, str]:
-    """
-    Extract text from a file with multiple fallbacks.
-    Returns (texte, source) where source ∈ {docling, pymupdf, gemini_vision}.
-    """
-    # 1. Docling (gère PDF, DOCX, images avec structure)
+    """Tenter chaque extracteur et conserver uniquement un résultat exploitable."""
+    attempts: list[tuple[str, str]] = []
+
     try:
-        texte = _extract_with_docling(file_path)
-        source = "docling"
-    except Exception as e:
-        print(f"[subject_parser] Docling échoué : {e}")
-        texte = ""
-        source = ""
+        text = _extract_with_docling(file_path)
+        if len(text.strip()) >= 100:
+            return text, "docling"
+        attempts.append(("docling", "texte insuffisant"))
+    except Exception:
+        attempts.append(("docling", "échec"))
 
-    # 2. Fallback PyMuPDF si Docling échoue ou renvoie trop peu de texte
-    if len(texte.strip()) < 100:
-        try:
-            texte = _extract_with_pymupdf(file_path)
-            source = "pymupdf"
-        except Exception as e:
-            print(f"[subject_parser] PyMuPDF échoué : {e}")
+    try:
+        text = _extract_with_pymupdf(file_path)
+        if len(text.strip()) >= 100:
+            return text, "pymupdf"
+        attempts.append(("pymupdf", "texte insuffisant"))
+    except Exception:
+        attempts.append(("pymupdf", "échec"))
 
-    # 3. Fallback Gemini Vision si texte toujours vide (PDF scanné)
-    if len(texte.strip()) < 100:
-        try:
-            texte = await _extract_with_gemini(file_path)
-            source = "gemini_vision"
-        except Exception as e:
-            print(f"[subject_parser] Gemini Vision échoué : {e}")
+    try:
+        text = await _extract_with_gemini(file_path)
+        if len(text.strip()) >= 20:
+            return text, "gemini_vision"
+        attempts.append(("gemini_vision", "texte insuffisant"))
+    except Exception:
+        attempts.append(("gemini_vision", "échec"))
 
-    return texte, source
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ÉTAPE 2 — Génération du barème via Claude
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def _parse_json_response(text: str) -> dict:
-    """Strip markdown fences and parse JSON."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-    return json.loads(text)
+    sources = ", ".join(source for source, _ in attempts)
+    raise SubjectExtractionError(
+        "document", f"Le document ne contient pas de texte suffisamment lisible ({sources})."
+    )
 
 
-def _generate_bareme_with_claude(texte: str, source: str) -> dict | None:
-    """Ask Claude to structure the exam into a barème JSON. Returns None on failure."""
+def _generate_bareme_with_claude(texte: str, source: str) -> SubjectRubric:
+    """Générer puis valider un barème structuré avec Claude."""
     if not ANTHROPIC_API_KEY:
-        return None
+        raise AIConfigurationError(
+            "claude", "ANTHROPIC_API_KEY doit être configurée pour générer un barème."
+        )
+
+    prompt = BAREME_PROMPT_TEMPLATE.format(texte=texte[:4000], source=source or "inconnue")
     try:
         import anthropic
+
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        # Limite à 4000 caractères pour rester raisonnable en tokens
-        prompt = BAREME_PROMPT_TEMPLATE.format(texte=texte[:4000], source=source or "inconnue")
-        message = client.messages.create(
+        response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
         )
-        return _parse_json_response(message.content[0].text)
-    except Exception as e:
-        print(f"[subject_parser] Claude échoué : {e}")
-        return None
+        text = response.content[0].text
+    except Exception as exc:
+        raise AIProviderUnavailableError(
+            "claude", "Le fournisseur de génération de barème est indisponible ou a rejeté la requête."
+        ) from exc
 
+    return decode_json_response(text, SubjectRubric, provider="claude")
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Fallback mock
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def _mock_bareme(texte: str = "", reason: str = "") -> dict:
-    """Return a minimal mock barème when Claude unavailable or extraction fails."""
-    return {
-        "matiere_detectee": "Non détectée",
-        "niveau_detecte": "Non détecté",
-        "total_points": 20,
-        "exercices": [
-            {
-                "numero": 1,
-                "enonce": "[Mode mock — à compléter manuellement]",
-                "reponse_attendue": "",
-                "points_max": 10,
-                "sous_questions": [],
-                "type": "autre",
-            },
-            {
-                "numero": 2,
-                "enonce": "[Mode mock — à compléter manuellement]",
-                "reponse_attendue": "",
-                "points_max": 10,
-                "sous_questions": [],
-                "type": "autre",
-            },
-        ],
-        "confiance": 0.0,
-        "remarques": reason or "Configurez ANTHROPIC_API_KEY pour activer l'analyse IA.",
-        "mock": True,
-    }
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# API publique
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def parse_subject(file_path: str) -> dict:
-    """
-    Main entry point: extract text from a subject file and generate a barème JSON.
-    Pipeline: Docling → PyMuPDF → Gemini Vision, then Claude for structuring.
-    Always returns a valid dict even if some steps fail.
-    """
-    if not os.path.exists(file_path):
-        return _mock_bareme(reason=f"Fichier introuvable : {file_path}")
+    """Extraire un sujet puis produire un barème validé, sans jamais simuler de résultat."""
+    if not os.path.isfile(file_path):
+        raise SubjectExtractionError("document", "Le fichier du sujet est introuvable.")
 
-    # 1. Extraction texte
     texte, source = await _extract_text(file_path)
-    if not texte or len(texte.strip()) < 20:
-        return _mock_bareme(reason="Extraction du texte impossible (fichier vide ou illisible).")
-
-    # 2. Structuration via Claude
     bareme = _generate_bareme_with_claude(texte, source)
-    if bareme is None:
-        return _mock_bareme(texte=texte, reason="Analyse IA indisponible — barème par défaut.")
-
-    # 3. Métadonnées & normalisation défensive
-    bareme.setdefault("total_points", 20)
-    bareme.setdefault("exercices", [])
-    bareme.setdefault("confiance", 0.5)
-    bareme.setdefault("remarques", "")
-    bareme["source_extraction"] = source
-    return bareme
+    result = bareme.model_dump()
+    result["source_extraction"] = source
+    return result

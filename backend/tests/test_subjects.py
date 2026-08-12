@@ -99,7 +99,13 @@ async def test_parse_subject_mock(tmp_path):
     pdf_path = tmp_path / "sujet_test.pdf"
     pdf_path.write_bytes(_build_test_pdf())
 
-    with patch.object(subject_parser, "_generate_bareme_with_claude", return_value=MOCK_BAREME):
+    from backend.schemas.ai_outputs import SubjectRubric
+
+    with patch.object(
+        subject_parser,
+        "_generate_bareme_with_claude",
+        return_value=SubjectRubric.model_validate(MOCK_BAREME),
+    ):
         result = await subject_parser.parse_subject(str(pdf_path))
 
     assert isinstance(result, dict)

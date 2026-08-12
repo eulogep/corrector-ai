@@ -8,7 +8,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -21,6 +21,7 @@ from backend.routes.grading import router as grading_router
 from backend.routes.reports import router as reports_router
 from backend.routes.subjects import router as subjects_router
 from backend.models.database import get_professor_stats, get_exams_by_professor
+from backend.services.exceptions import AIServiceError
 from fastapi import Depends
 
 
@@ -39,6 +40,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+@app.exception_handler(AIServiceError)
+async def ai_service_error_handler(request: Request, exc: AIServiceError):
+    """Exposer les échecs IA attendus sans fuite de détails fournisseurs."""
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.to_detail()})
+
 
 # ━━━ CORS ━━━
 app.add_middleware(

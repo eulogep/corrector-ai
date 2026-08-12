@@ -6,11 +6,12 @@ Pipeline : upload PDF → Docling + Claude → barème JSON → validation prof 
 import os
 import uuid
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from backend.auth import get_current_professor
 from backend.config import UPLOADS_DIR, MAX_FILE_SIZE
 from backend.services.subject_parser import parse_subject
 from backend.models.database import save_subject, get_subject, list_subjects
+from backend.services.exceptions import AIServiceError
 
 router = APIRouter(prefix="/api/subjects", tags=["Sujets"])
 
@@ -21,21 +22,32 @@ SUBJECT_EXTENSIONS = {".pdf", ".docx", ".doc", ".jpg", ".jpeg", ".png", ".webp"}
 # ━━━ Modèles Pydantic ━━━
 
 class ExerciceBareme(BaseModel):
-    numero: int
-    enonce: str = ""
-    reponse_attendue: str = ""
-    points_max: float = 0
-    type: str = "autre"
-    sous_questions: list = []
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    numero: int = Field(ge=1, le=500)
+    enonce: str = Field(min_length=1, max_length=20_000)
+    reponse_attendue: str = Field(default="", max_length=20_000)
+    points_max: float = Field(gt=0, le=1000)
+    type: str = Field(default="autre", min_length=1, max_length=50)
+    sous_questions: list[dict] = Field(default_factory=list, max_length=100)
 
 
 class ValidateSubjectRequest(BaseModel):
-    matiere: str = ""
-    niveau: str = ""
-    titre: str = ""
-    total_points: float = 20
-    exercices: list[ExerciceBareme]
-    pdf_path: str = ""
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    matiere: str = Field(min_length=1, max_length=200)
+    niveau: str = Field(min_length=1, max_length=200)
+    titre: str = Field(default="", max_length=300)
+    total_points: float = Field(gt=0, le=1000)
+    exercices: list[ExerciceBareme] = Field(min_length=1, max_length=500)
+    pdf_path: str = Field(default="", max_length=2_000)
+
+    @model_validator(mode="after")
+    def total_matches_exercises(self) -> "ValidateSubjectRequest":
+        total = round(sum(exercice.points_max for exercice in self.exercices), 2)
+        if abs(total - self.total_points) > 0.01:
+            raise ValueError("La somme des points des exercices doit correspondre au total_points.")
+        return self
 
 
 # ━━━ Routes ━━━
@@ -72,8 +84,10 @@ async def parse_subject_endpoint(
         bareme = await parse_subject(filepath)
         bareme["pdf_path"] = filepath
         return bareme
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur analyse sujet : {str(e)}")
+    except AIServiceError:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erreur interne lors de l'analyse du sujet.")
 
 
 @router.post("/validate")
