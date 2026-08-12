@@ -1,6 +1,6 @@
 # Corrector AI
 
-[![Tests backend](https://github.com/eulogep/corrector-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/eulogep/corrector-ai/actions/workflows/ci.yml)
+![Tests](https://img.shields.io/badge/tests-pytest-0ea5e9.svg)
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-2563eb.svg)](LICENSE)
 [![Contributions](https://img.shields.io/badge/contributions-welcome-16a34a.svg)](CONTRIBUTING.md)
 [![Stars](https://img.shields.io/github/stars/eulogep/corrector-ai?style=social)](https://github.com/eulogep/corrector-ai/stargazers)
