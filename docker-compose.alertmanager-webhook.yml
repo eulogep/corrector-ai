@@ -1,0 +1,4 @@
+services:
+  alertmanager:
+    volumes:
+      - ./.secrets/alert_webhook_token:/run/secrets/alert_webhook_token:ro

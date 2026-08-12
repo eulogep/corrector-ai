@@ -1,0 +1,4 @@
+services:
+  alertmanager:
+    volumes:
+      - ./.secrets/alert_smtp_password:/run/secrets/alert_smtp_password:ro

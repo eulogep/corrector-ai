@@ -1,0 +1,22 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: smtp.example.invalid:587
+  smtp_from: alerts@example.invalid
+  smtp_auth_username: alerts@example.invalid
+  smtp_auth_password_file: /run/secrets/alert_smtp_password
+  smtp_require_tls: true
+
+route:
+  receiver: corrector-ai-email
+  group_by: [alertname, service, provider]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: corrector-ai-email
+    email_configs:
+      - to: astreinte@example.invalid
+        send_resolved: true
+        headers:
+          Subject: "[Corrector AI] {{ .Status | toUpper }} — {{ .CommonLabels.alertname }}"

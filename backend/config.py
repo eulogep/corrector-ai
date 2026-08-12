@@ -45,6 +45,16 @@ LLM_RETRY_MAX_SECONDS = max(
     LLM_RETRY_BASE_SECONDS, float(os.getenv("LLM_RETRY_MAX_SECONDS", "4"))
 )
 
+# ━━━ Cache Redis ━━━
+# Laisser REDIS_URL vide pour désactiver le cache sans bloquer le pipeline pédagogique.
+REDIS_URL = _read_secret("REDIS_URL")
+REDIS_PASSWORD = _read_secret("REDIS_PASSWORD")
+if not REDIS_URL and REDIS_PASSWORD:
+    REDIS_URL = f"redis://:{REDIS_PASSWORD}@redis:6379/0"
+SUBJECT_CACHE_TTL_SECONDS = max(
+    60, int(os.getenv("SUBJECT_CACHE_TTL_SECONDS", "86400"))
+)
+
 # ━━━ Serveur ━━━
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

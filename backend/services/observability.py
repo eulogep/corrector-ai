@@ -49,6 +49,11 @@ AI_RETRIES_TOTAL = Counter(
     "Nombre de réessais programmés après un échec fournisseur transitoire.",
     ("provider", "operation"),
 )
+SUBJECT_CACHE_REQUESTS_TOTAL = Counter(
+    "corrector_ai_subject_cache_requests_total",
+    "Résultats des tentatives de lecture du cache de sujets.",
+    ("result",),
+)
 
 
 def set_request_id(request_id: str):
@@ -115,6 +120,12 @@ def observe_ai_call(provider: str, operation: str) -> Iterator[str]:
             error_code=error_code,
             duration_ms=round(duration * 1000, 2),
         )
+
+
+def record_subject_cache_result(result: str) -> None:
+    """Publier un résultat de cache sans inclure de clé, fichier ou contenu de sujet."""
+    SUBJECT_CACHE_REQUESTS_TOTAL.labels(result=result).inc()
+    _log("subject_cache_result", request_id=request_id_context.get(), result=result)
 
 
 def record_ai_retry(provider: str, operation: str, attempt: int, delay_seconds: float) -> None:

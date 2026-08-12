@@ -31,6 +31,8 @@ desktop.ini
 *.log
 prometheus-data/
 caddy-data/
+monitoring/alertmanager.*.local.yml
+performance/reports/
 
 # Tests
 .pytest_cache/

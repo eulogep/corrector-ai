@@ -81,7 +81,7 @@ async def parse_subject_endpoint(
         f.write(content)
 
     try:
-        bareme = await parse_subject(filepath)
+        bareme = await parse_subject(filepath, cache_namespace=f"professor:{prof['id']}")
         bareme["pdf_path"] = filepath
         return bareme
     except AIServiceError:

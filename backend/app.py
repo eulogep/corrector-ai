@@ -42,9 +42,14 @@ from fastapi import Depends
 # ━━━ Lifespan — init DB au démarrage ━━━
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize the database on startup."""
+    """Initialiser la base puis fermer proprement les ressources réseau à l'arrêt."""
     init_db()
-    yield
+    try:
+        yield
+    finally:
+        from backend.services.subject_parser import subject_cache
+
+        await subject_cache.close()
 
 
 # ━━━ Création de l'app ━━━

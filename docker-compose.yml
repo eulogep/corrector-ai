@@ -1,6 +1,25 @@
 name: corrector-ai
 
 services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    command:
+      - sh
+      - -c
+      - 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD:?REDIS_PASSWORD requis}"'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+
   corrector-ai:
     build:
       context: .
@@ -15,6 +34,9 @@ services:
     ports:
       # L'application reste privée ; utiliser le proxy TLS optionnel pour l'exposer sur Internet.
       - "127.0.0.1:8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
       - corrector_data:/data
       - ./.secrets/metrics_token:/run/secrets/metrics_token:ro
@@ -38,3 +60,5 @@ services:
 volumes:
   corrector_data:
     name: corrector_ai_data
+  redis_data:
+    name: corrector_ai_redis_data

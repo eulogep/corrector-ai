@@ -306,3 +306,132 @@ La première source de ralentissement doit être identifiée dans Grafana, par f
 | Utiliser un parcours rapide pour l’aperçu | Répond plus vite lors d’une prévisualisation | Toute note finale doit toujours passer par le même contrôle de contrat et une validation humaine |
 
 Les gains à faible risque déjà implémentés sont le passage hors boucle asynchrone des SDK synchrones Claude et Gemini, un délai de connexion HTTP DeepSeek de cinq secondes, une durée de requête DeepSeek de trente secondes, les réessais plafonnés et la bascule automatique. Avant de modifier les nombres de tentatives, les tokens ou les délais, observez sur plusieurs jours la latence P95, le taux d’erreur et le volume de réessais.
+
+
+## 13. Cache Redis des extractions de sujets
+
+Redis est démarré par `docker-compose.yml` et n’est pas publié sur le réseau de l’hôte. Le cache vise uniquement les résultats de **l’analyse d’un même sujet** : il évite de refaire Docling/OCR/LLM lorsqu’un professeur recharge le même document dans la période de conservation définie.
+
+La clé Redis combine le hachage SHA-256 du fichier, un préfixe de version du contrat et un hachage de l’espace professeur. Ainsi, deux enseignants qui déposent le même fichier ne partagent pas une entrée de cache. Le contenu complet du sujet n’apparaît ni dans la clé, ni dans les métriques, ni dans les journaux.
+
+> **Données sensibles :** le résultat mis en cache peut contenir un barème, des énoncés et des réponses attendues. Le volume `corrector_ai_redis_data` doit donc être sauvegardé, chiffré et protégé avec le même niveau d’exigence que le volume applicatif.
+
+Ajoutez un mot de passe Redis dans `.env.production`, qui doit déjà être en permissions `600`.
+
+```bash
+umask 077
+REDIS_PASSWORD_VALUE="$(openssl rand -base64 32)"
+printf '\nREDIS_PASSWORD=%s\nREDIS_URL=\nSUBJECT_CACHE_TTL_SECONDS=86400\n' \
+  "$REDIS_PASSWORD_VALUE" >> .env.production
+```
+
+Laissez `REDIS_URL` vide dans cette configuration Docker : l’application construit alors l’adresse privée `redis://…@redis:6379/0` à partir de `REDIS_PASSWORD`. Pour une instance Redis administrée séparément, renseignez `REDIS_URL` avec une URL TLS, par exemple `rediss://:mot-de-passe@redis.exemple.fr:6380/0`.
+
+Le cache est **fail-open**. Si Redis est vide, indisponible ou renvoie une entrée invalide, Corrector AI traite le sujet normalement. Une entrée illisible est supprimée puis reconstruite. La durée de vie par défaut est de 24 heures (`SUBJECT_CACHE_TTL_SECONDS=86400`); adaptez-la à votre politique de conservation.
+
+| Métrique | Interprétation |
+|---|---|
+| `corrector_ai_subject_cache_requests_total{result="hit"}` | Barème restitué depuis Redis |
+| `…{result="miss"}` | Sujet non encore présent ou expiré |
+| `…{result="stored"}` | Nouveau résultat validé enregistré |
+| `…{result="unavailable"}` | Redis inaccessible : l’analyse a poursuivi sans cache |
+| `…{result="disabled"}` | Cache désactivé, typiquement en développement local |
+
+Pour invalider tout le cache de sujets lors d’un changement de contrat de barème ou d’une enquête de confidentialité, arrêtez d’abord les traitements en cours puis supprimez uniquement le préfixe concerné.
+
+```bash
+docker compose exec redis sh -c \
+  'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" --scan --pattern "corrector-ai:subject-rubric:v1:*" \
+  | xargs -r redis-cli --no-auth-warning -a "$REDIS_PASSWORD" del'
+```
+
+## 14. Test de charge concurrent avec Locust
+
+Le scénario `performance/locustfile.py` crée un compte isolé par utilisateur simulé et répartit la charge entre `/healthz`, le dashboard et la liste des élèves. Par défaut, il **n’appelle pas les fournisseurs IA** : cette précaution évite un coût imprévu et protège les quotas externes pendant les tests de base.
+
+Installez les dépendances de développement depuis une machine dédiée au test, jamais depuis le conteneur de production.
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Démarrez d’abord l’application sur un environnement de préproduction avec une base et des secrets dédiés. Lancez ensuite une montée progressive de dix utilisateurs, à raison d’un nouvel utilisateur par seconde, pendant deux minutes.
+
+```bash
+mkdir -p performance/reports
+locust \
+  -f performance/locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --headless \
+  --users 10 \
+  --spawn-rate 1 \
+  --run-time 2m \
+  --html performance/reports/locust-smoke.html \
+  --csv performance/reports/locust-smoke
+```
+
+Ne testez jamais une production réelle sans fenêtre de maintenance, limite de charge, base de test et validation explicite. Une campagne initiale prudente consiste à augmenter par paliers de 10, 25 puis 50 utilisateurs, en observant simultanément l’utilisation CPU/mémoire, les erreurs HTTP, `ai_calls_in_progress`, la P95 et les alertes Prometheus.
+
+Pour inclure l’endpoint de correction, utilisez des clés et quotas de **préproduction**, puis activez explicitement `LOCUST_INCLUDE_AI=true`. Cette option peut appeler Claude ou DeepSeek et générer une consommation réelle.
+
+```bash
+LOCUST_INCLUDE_AI=true locust \
+  -f performance/locustfile.py \
+  --host https://preproduction.exemple.fr \
+  --headless --users 2 --spawn-rate 1 --run-time 30s
+```
+
+Interprétez le résultat avec prudence : un bon test de charge doit établir une ligne de base sans IA, puis mesurer séparément l’effet des appels LLM et de leur latence externe. Conservez les rapports HTML/CSV hors Git.
+
+## 15. Notifications Alertmanager : webhook et e-mail
+
+Le fichier `monitoring/alertmanager.yml` reste volontairement silencieux par défaut. Les modèles versionnés suivants activent un seul canal à la fois, avec secret monté en lecture seule :
+
+| Canal | Modèle | Secret requis | Extension Compose |
+|---|---|---|---|
+| Webhook HTTPS | `monitoring/alertmanager.webhook.example.yml` | `.secrets/alert_webhook_token` | `docker-compose.alertmanager-webhook.yml` |
+| E-mail SMTP | `monitoring/alertmanager.email.example.yml` | `.secrets/alert_smtp_password` | `docker-compose.alertmanager-email.yml` |
+
+### Webhook
+
+Copiez le modèle vers un fichier local ignoré par Git, remplacez l’URL de démonstration par un endpoint HTTPS contrôlé et créez le jeton d’autorisation. L’endpoint doit vérifier le jeton, accepter les messages résolus (`send_resolved: true`) et ne jamais journaliser les labels ou annotations sans contrôle d’accès.
+
+```bash
+cp monitoring/alertmanager.webhook.example.yml \
+  monitoring/alertmanager.webhook.local.yml
+# Éditer l'URL dans le fichier local.
+
+umask 077
+openssl rand -hex 32 > .secrets/alert_webhook_token
+chmod 600 .secrets/alert_webhook_token
+
+export ALERTMANAGER_CONFIG_PATH=./monitoring/alertmanager.webhook.local.yml
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.monitoring.yml \
+  -f docker-compose.alertmanager-webhook.yml \
+  up --detach
+```
+
+### E-mail
+
+Copiez le modèle e-mail vers un fichier local, renseignez l’hôte SMTP, le compte expéditeur, le destinataire d’astreinte et le port TLS. Conservez le mot de passe hors du YAML, dans le fichier secret monté par l’extension Compose.
+
+```bash
+cp monitoring/alertmanager.email.example.yml \
+  monitoring/alertmanager.email.local.yml
+# Éditer les paramètres SMTP et le destinataire.
+
+umask 077
+printf '%s' 'mot-de-passe-application-SMTP' > .secrets/alert_smtp_password
+chmod 600 .secrets/alert_smtp_password
+
+export ALERTMANAGER_CONFIG_PATH=./monitoring/alertmanager.email.local.yml
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.monitoring.yml \
+  -f docker-compose.alertmanager-email.yml \
+  up --detach
+```
+
+Après chaque changement de canal, vérifiez dans l’interface Alertmanager que les groupes d’alertes sont routés vers le récepteur attendu, puis déclenchez une alerte de test sur la préproduction. Ne réutilisez ni le secret JWT, ni les clés LLM, ni le jeton Prometheus comme secret de webhook ou mot de passe SMTP.

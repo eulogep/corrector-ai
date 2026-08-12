@@ -19,6 +19,10 @@ from backend.services.exceptions import (
 )
 from backend.services.observability import observe_ai_call
 from backend.services.retry import call_with_exponential_backoff
+from backend.services.subject_cache import SubjectExtractionCache
+
+
+subject_cache = SubjectExtractionCache()
 
 
 BAREME_PROMPT_TEMPLATE = """Voici le texte d'un sujet d'examen, extrait depuis {source} :
@@ -230,14 +234,43 @@ async def _generate_bareme_with_fallback(texte: str, source: str) -> tuple[Subje
     ) from failures[-1]
 
 
-async def parse_subject(file_path: str) -> dict:
-    """Extraire un sujet puis produire un barème validé, sans jamais simuler de résultat."""
+async def parse_subject(file_path: str, cache_namespace: str = "anonymous") -> dict:
+    """Extraire un sujet ou restituer un barème validé depuis le cache Redis.
+
+    Le namespace est fourni par la route authentifiée afin qu'un résultat de sujet ne soit
+    jamais partagé entre professeurs, même si deux fichiers identiques sont chargés.
+    """
     if not os.path.isfile(file_path):
         raise SubjectExtractionError("document", "Le fichier du sujet est introuvable.")
 
+    cache_key: str | None = None
+    if subject_cache.enabled:
+        cache_key = await subject_cache.key_for_file(file_path, cache_namespace)
+        cached = await subject_cache.get(cache_key)
+        if cached:
+            try:
+                bareme = SubjectRubric.model_validate(cached["rubric"])
+                result = bareme.model_dump()
+                result["source_extraction"] = "cache"
+                result["llm_used"] = cached.get("llm_used", "cache")
+                result["cache_hit"] = True
+                return result
+            except Exception:
+                # Les données non conformes ne sont jamais retournées ; l'entrée sera reconstruite.
+                await subject_cache.delete(cache_key)
+
     texte, source = await _extract_text(file_path)
     bareme, provider = await _generate_bareme_with_fallback(texte, source)
+    cache_payload = {
+        "rubric": bareme.model_dump(),
+        "source_extraction": source,
+        "llm_used": provider,
+    }
+    if cache_key is not None:
+        await subject_cache.set(cache_key, cache_payload)
+
     result = bareme.model_dump()
     result["source_extraction"] = source
     result["llm_used"] = provider
+    result["cache_hit"] = False
     return result

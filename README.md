@@ -51,6 +51,8 @@ Corrector AI automatise tout le pipeline de correction :
 | 🔒 **Données maîtrisées** | SQLite local ; les appels OCR/LLM envoient le contenu aux fournisseurs configurés, à encadrer par votre politique RGPD |
 | 📡 **Observabilité IA** | Traces corrélées, métriques Prometheus protégées, alertes et dashboard Grafana |
 | 🔁 **Résilience fournisseurs** | Réessais exponentiels bornés et bascule Claude → DeepSeek pour correction et barèmes |
+| ⚡ **Cache de sujets** | Redis isolé par professeur pour éviter de retraiter le même sujet pendant la durée configurée |
+| 🧪 **Charge concurrente** | Scénario Locust versionné, avec appels IA désactivés par défaut pour protéger les quotas |
 
 ---
 

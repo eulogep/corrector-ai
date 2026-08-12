@@ -127,7 +127,7 @@ async def test_parse_endpoint(subject_setup):
     pdf_bytes = _build_test_pdf()
 
     # On patch parse_subject au niveau du module route (import local)
-    async def _fake_parse(_path):
+    async def _fake_parse(_path, **_kwargs):
         return {**MOCK_BAREME, "pdf_path": _path}
 
     with patch("backend.routes.subjects.parse_subject", new=AsyncMock(side_effect=_fake_parse)):
