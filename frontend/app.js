@@ -1,5 +1,6 @@
 // Corrector AI — Application JavaScript
-const API = 'http://localhost:8000';
+// Même origine en déploiement (Render, Docker, HTTPS) ; repli pratique pour l'ouverture directe du fichier en local.
+const API = window.location.protocol === 'file:' ? 'http://localhost:8000' : window.location.origin;
 let token = localStorage.getItem('token');
 let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
 let currentExamId = null;
