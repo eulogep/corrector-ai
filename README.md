@@ -129,6 +129,8 @@ La validation humaine reste indispensable avant de communiquer une note. N’uti
 
 Les contributions sont les bienvenues : tests, documentation, accessibilité, connecteurs, exemples de déploiement, compatibilité d’OCR local et amélioration de la qualité pédagogique. Consultez [CONTRIBUTING.md](CONTRIBUTING.md), le [code de conduite](CODE_OF_CONDUCT.md), le [support](SUPPORT.md) et la [politique de sécurité](SECURITY.md).
 
+Le workflow GitHub Actions est fourni comme modèle ; consultez [CI_SETUP.md](docs/CI_SETUP.md) pour l’activer avec un jeton disposant de la permission `workflows`.
+
 Avant une pull request :
 
 ```bash
