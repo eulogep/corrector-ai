@@ -1,0 +1,27 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle=false
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./.secrets/metrics_token:/run/secrets/metrics_token:ro
+      - prometheus_data:/prometheus
+    ports:
+      # Interface de diagnostic réservée à l'hôte ; ne pas publier Internet directement.
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      corrector-ai:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  prometheus_data:
+    name: corrector_ai_prometheus_data

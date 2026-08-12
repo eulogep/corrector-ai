@@ -22,6 +22,7 @@ from backend.services.exceptions import (
     AIServiceError,
     CorrectionInputError,
 )
+from backend.services.observability import observe_ai_call
 
 
 SYSTEM_PROMPT = """Tu es Corrector AI, un assistant pédagogique expert du système éducatif français.
@@ -124,23 +125,25 @@ async def _grade_with_claude(prompt: str) -> GradingResult:
             "claude", "ANTHROPIC_API_KEY n'est pas configurée pour la correction."
         )
     try:
-        import anthropic
+        with observe_ai_call("claude", "grading"):
+            import anthropic
 
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-        )
-        text = response.content[0].text
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+            text = response.content[0].text
+            return decode_json_response(text, GradingResult, provider="claude")
+    except AIServiceError:
+        raise
     except Exception as exc:
         raise AIProviderUnavailableError(
             "claude", "Le fournisseur Claude est indisponible ou a rejeté la requête."
         ) from exc
-
-    return decode_json_response(text, GradingResult, provider="claude")
 
 
 async def _grade_with_deepseek(prompt: str) -> GradingResult:
@@ -150,34 +153,36 @@ async def _grade_with_deepseek(prompt: str) -> GradingResult:
             "deepseek", "DEEPSEEK_API_KEY n'est pas configurée pour la correction."
         )
     try:
-        import httpx
+        with observe_ai_call("deepseek", "grading"):
+            import httpx
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                "https://api.deepseek.com/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.1,
-                    "max_tokens": 4096,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data["choices"][0]["message"]["content"]
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 4096,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                text = data["choices"][0]["message"]["content"]
+                return decode_json_response(text, GradingResult, provider="deepseek")
+    except AIServiceError:
+        raise
     except Exception as exc:
         raise AIProviderUnavailableError(
             "deepseek", "Le fournisseur DeepSeek est indisponible ou a rejeté la requête."
         ) from exc
-
-    return decode_json_response(text, GradingResult, provider="deepseek")
 
 
 def _validate_requested_scale(exercices_corrige: list[dict], note_sur: float) -> None:

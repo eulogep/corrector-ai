@@ -10,15 +10,32 @@ from dotenv import load_dotenv
 # Charger le .env depuis la racine du projet (local uniquement)
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
+def _read_secret(env_name: str) -> str:
+    """Lire une variable ou, pour Docker, le contenu d'un fichier de secret associé."""
+    value = os.getenv(env_name, "")
+    secret_file = os.getenv(f"{env_name}_FILE", "")
+    if value or not secret_file:
+        return value
+    try:
+        with open(secret_file, "r", encoding="utf-8") as file:
+            return file.read().strip()
+    except OSError:
+        return ""
+
+
 # ━━━ Clés API ━━━
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+GEMINI_API_KEY = _read_secret("GEMINI_API_KEY")
+ANTHROPIC_API_KEY = _read_secret("ANTHROPIC_API_KEY")
+DEEPSEEK_API_KEY = _read_secret("DEEPSEEK_API_KEY")
 
 # ━━━ JWT ━━━
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY", "dev-secret-change-me"))
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
+
+# ━━━ Observabilité ━━━
+# L'endpoint Prometheus /metrics est désactivé tant que ce jeton n'est pas configuré.
+METRICS_TOKEN = _read_secret("METRICS_TOKEN")
 
 # ━━━ Serveur ━━━
 HOST = os.getenv("HOST", "0.0.0.0")

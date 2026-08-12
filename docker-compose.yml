@@ -1,0 +1,40 @@
+name: corrector-ai
+
+services:
+  corrector-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: corrector-ai:latest
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      DEBUG: "false"
+      METRICS_TOKEN_FILE: /run/secrets/metrics_token
+    ports:
+      # L'application reste privée ; utiliser le proxy TLS optionnel pour l'exposer sur Internet.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - corrector_data:/data
+      - ./.secrets/metrics_token:/run/secrets/metrics_token:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Nécessaires uniquement au point d'entrée pour préparer /data puis abandonner root.
+      - CHOWN
+      - SETUID
+      - SETGID
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+
+volumes:
+  corrector_data:
+    name: corrector_ai_data

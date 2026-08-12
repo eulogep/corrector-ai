@@ -13,8 +13,10 @@ from backend.schemas.ai_outputs import SubjectRubric, decode_json_response
 from backend.services.exceptions import (
     AIConfigurationError,
     AIProviderUnavailableError,
+    AIServiceError,
     SubjectExtractionError,
 )
+from backend.services.observability import observe_ai_call
 
 
 BAREME_PROMPT_TEMPLATE = """Voici le texte d'un sujet d'examen, extrait depuis {source} :
@@ -123,22 +125,24 @@ def _generate_bareme_with_claude(texte: str, source: str) -> SubjectRubric:
 
     prompt = BAREME_PROMPT_TEMPLATE.format(texte=texte[:4000], source=source or "inconnue")
     try:
-        import anthropic
+        with observe_ai_call("claude", "subject_rubric"):
+            import anthropic
 
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-        )
-        text = response.content[0].text
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+            text = response.content[0].text
+            return decode_json_response(text, SubjectRubric, provider="claude")
+    except AIServiceError:
+        raise
     except Exception as exc:
         raise AIProviderUnavailableError(
             "claude", "Le fournisseur de génération de barème est indisponible ou a rejeté la requête."
         ) from exc
-
-    return decode_json_response(text, SubjectRubric, provider="claude")
 
 
 async def parse_subject(file_path: str) -> dict:

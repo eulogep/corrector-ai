@@ -49,6 +49,7 @@ Corrector AI automatise tout le pipeline de correction :
 | 📧 **Envoi email** | Rapport envoyé à l'élève automatiquement via SMTP |
 | 📊 **Export CSV** | Notes par classe exportables en un clic |
 | 🔒 **RGPD natif** | SQLite local — aucune donnée élève envoyée à l'étranger |
+| 📡 **Observabilité IA** | Traces corrélées, métriques Prometheus protégées et latence par fournisseur |
 
 ---
 
@@ -95,6 +96,10 @@ corrector-ai/
 ```
 
 ---
+
+## 🚀 Déploiement de production
+
+Le projet inclut une image Docker, Docker Compose, Prometheus et une configuration HTTPS Caddy. Consultez le **[guide complet de déploiement](docs/DEPLOYMENT.md)** pour préparer les secrets, lancer l'application, activer le monitoring, sauvegarder les données et mettre à jour la production.
 
 ## ⚡ Installation
 

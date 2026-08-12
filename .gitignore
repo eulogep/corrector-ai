@@ -1,5 +1,7 @@
 # Environnement
 .env
+.env.production
+.secrets/
 *.pyc
 __pycache__/
 .venv/
@@ -25,7 +27,13 @@ data/*.db
 Thumbs.db
 desktop.ini
 
+# Docker
+*.log
+prometheus-data/
+caddy-data/
+
 # Tests
 .pytest_cache/
 htmlcov/
 .coverage
+coverage.xml

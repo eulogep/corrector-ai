@@ -18,6 +18,7 @@ from backend.services.exceptions import (
     AIConfigurationError,
     AIProviderUnavailableError,
 )
+from backend.services.observability import observe_ai_call
 
 
 OCR_PROMPT = """Tu es un système OCR spécialisé dans la lecture de copies manuscrites d'élèves français.
@@ -102,12 +103,14 @@ def _generate_content(prompt: str, image_path: str) -> str:
 
 async def extract_text_structured(image_path: str) -> dict:
     """Extraire des réponses structurées et valider strictement le contrat OCR."""
-    text = _generate_content(OCR_PROMPT, image_path)
-    result = decode_json_response(text, OCRStructuredResult, provider="gemini")
-    return result.model_dump()
+    with observe_ai_call("gemini", "ocr_structured"):
+        text = _generate_content(OCR_PROMPT, image_path)
+        result = decode_json_response(text, OCRStructuredResult, provider="gemini")
+        return result.model_dump()
 
 
 async def extract_text_simple(image_path: str) -> str:
     """Extraire du texte brut non vide ; aucune sortie simulée n'est autorisée."""
-    text = _generate_content(SIMPLE_PROMPT, image_path)
-    return validate_ocr_simple_text(text, provider="gemini")
+    with observe_ai_call("gemini", "ocr_simple"):
+        text = _generate_content(SIMPLE_PROMPT, image_path)
+        return validate_ocr_simple_text(text, provider="gemini")
