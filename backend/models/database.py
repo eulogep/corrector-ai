@@ -110,12 +110,50 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (professor_id) REFERENCES professors(id)
             );
+
+            CREATE TABLE IF NOT EXISTS review_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_id INTEGER NOT NULL,
+                professor_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                previous_status TEXT DEFAULT '',
+                new_status TEXT NOT NULL,
+                note_before REAL,
+                note_after REAL,
+                comment TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+                FOREIGN KEY (professor_id) REFERENCES professors(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS calibration_cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_id INTEGER NOT NULL UNIQUE,
+                professor_id INTEGER NOT NULL,
+                reference_note REAL NOT NULL,
+                reference_note_sur REAL NOT NULL DEFAULT 20,
+                reference_source TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+                FOREIGN KEY (professor_id) REFERENCES professors(id)
+            );
         """)
-        # Migration douce : colonne subject_id dans exams (ignoré si déjà présente)
-        try:
-            conn.execute("ALTER TABLE exams ADD COLUMN subject_id INTEGER DEFAULT NULL")
-        except Exception:
-            pass
+        # Migrations douces : compatibles avec les bases existantes.
+        for statement in [
+            "ALTER TABLE exams ADD COLUMN subject_id INTEGER DEFAULT NULL",
+            "ALTER TABLE exams ADD COLUMN review_status TEXT NOT NULL DEFAULT 'pending_review'",
+            "ALTER TABLE exams ADD COLUMN reviewed_at TEXT DEFAULT NULL",
+            "ALTER TABLE exams ADD COLUMN reviewed_by INTEGER DEFAULT NULL",
+            "ALTER TABLE exams ADD COLUMN review_comment TEXT DEFAULT ''",
+            "ALTER TABLE exams ADD COLUMN ai_note_totale REAL DEFAULT NULL",
+            "ALTER TABLE exams ADD COLUMN ai_appreciation TEXT DEFAULT ''",
+        ]:
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -225,11 +263,13 @@ def create_exam(student_id: int, professor_id: int, matiere: str, niveau: str,
             """INSERT INTO exams
                (student_id, professor_id, matiere, niveau, date_examen,
                 note_totale, note_sur, appreciation, image_path,
-                alerte_anomalie, message_anomalie, subject_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                alerte_anomalie, message_anomalie, subject_id,
+                review_status, ai_note_totale, ai_appreciation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?)""",
             (student_id, professor_id, matiere, niveau, date_examen,
              note_totale, note_sur, appreciation, image_path,
-             alerte_anomalie, message_anomalie, subject_id)
+             alerte_anomalie, message_anomalie, subject_id,
+             note_totale, appreciation)
         )
         return cursor.lastrowid
 
@@ -493,3 +533,171 @@ def get_student_progression(student_id: int) -> dict:
             "nb_exams": nb_exams,
             "progression": progression,
         }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Revue humaine et pilote de calibration
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def update_exam_review(
+    exam_id: int,
+    professor_id: int,
+    status: str,
+    comment: str = "",
+    final_note: float | None = None,
+    final_appreciation: str | None = None,
+) -> dict | None:
+    """Apply a teacher review and persist an immutable business audit event."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM exams WHERE id = ? AND professor_id = ?", (exam_id, professor_id)
+        ).fetchone()
+        if row is None:
+            return None
+
+        exam = dict(row)
+        note_after = exam["note_totale"] if final_note is None else final_note
+        appreciation_after = exam["appreciation"] if final_appreciation is None else final_appreciation
+        action = "approved" if status == "approved" else "sent_back_for_revision"
+        conn.execute(
+            """UPDATE exams
+               SET review_status = ?, reviewed_at = datetime('now'), reviewed_by = ?,
+                   review_comment = ?, note_totale = ?, appreciation = ?
+               WHERE id = ?""",
+            (status, professor_id, comment, note_after, appreciation_after, exam_id),
+        )
+        conn.execute(
+            """INSERT INTO review_events
+               (exam_id, professor_id, action, previous_status, new_status,
+                note_before, note_after, comment)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                exam_id,
+                professor_id,
+                action,
+                exam.get("review_status", "pending_review"),
+                status,
+                exam["note_totale"],
+                note_after,
+                comment,
+            ),
+        )
+    return get_exam_by_id(exam_id)
+
+
+def get_review_events(exam_id: int, professor_id: int) -> list:
+    """Return the teacher-facing audit history for an owned exam."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, action, previous_status, new_status, note_before, note_after,
+                      comment, created_at
+               FROM review_events
+               WHERE exam_id = ? AND professor_id = ?
+               ORDER BY id ASC""",
+            (exam_id, professor_id),
+        ).fetchall()
+        return rows_to_list(rows)
+
+
+def list_exams_for_review(professor_id: int, status: str | None = None, limit: int = 100) -> list:
+    """List owned exams in a review queue, with a bounded result set."""
+    query = """SELECT e.*, s.nom as student_nom, s.prenom as student_prenom, s.classe
+               FROM exams e JOIN students s ON e.student_id = s.id
+               WHERE e.professor_id = ?"""
+    params: list = [professor_id]
+    if status:
+        query += " AND e.review_status = ?"
+        params.append(status)
+    query += " ORDER BY CASE e.review_status WHEN 'pending_review' THEN 0 WHEN 'needs_revision' THEN 1 ELSE 2 END, e.created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        return rows_to_list(conn.execute(query, params).fetchall())
+
+
+def save_calibration_case(
+    exam_id: int,
+    professor_id: int,
+    reference_note: float,
+    reference_note_sur: float,
+    reference_source: str = "",
+    notes: str = "",
+) -> dict | None:
+    """Store or update an anonymised human reference for pilot quality measurement."""
+    with get_db() as conn:
+        exam = conn.execute(
+            "SELECT id FROM exams WHERE id = ? AND professor_id = ?", (exam_id, professor_id)
+        ).fetchone()
+        if exam is None:
+            return None
+        conn.execute(
+            """INSERT INTO calibration_cases
+               (exam_id, professor_id, reference_note, reference_note_sur, reference_source, notes)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(exam_id) DO UPDATE SET
+                 reference_note = excluded.reference_note,
+                 reference_note_sur = excluded.reference_note_sur,
+                 reference_source = excluded.reference_source,
+                 notes = excluded.notes,
+                 updated_at = datetime('now')""",
+            (exam_id, professor_id, reference_note, reference_note_sur, reference_source, notes),
+        )
+        row = conn.execute(
+            "SELECT * FROM calibration_cases WHERE exam_id = ?", (exam_id,)
+        ).fetchone()
+        return row_to_dict(row)
+
+
+def get_pilot_metrics(professor_id: int) -> dict:
+    """Compute transparent aggregate quality and review metrics for a professor pilot."""
+    with get_db() as conn:
+        review_rows = conn.execute(
+            """SELECT review_status, COUNT(*) AS count
+               FROM exams WHERE professor_id = ? GROUP BY review_status""",
+            (professor_id,),
+        ).fetchall()
+        review_counts = {row["review_status"]: row["count"] for row in review_rows}
+
+        quality = conn.execute(
+            """SELECT
+                 COUNT(*) AS count,
+                 AVG(ABS((e.ai_note_totale * 20.0 / NULLIF(e.note_sur, 0)) -
+                         (c.reference_note * 20.0 / NULLIF(c.reference_note_sur, 0)))) AS mae_sur_20,
+                 AVG((e.ai_note_totale * 20.0 / NULLIF(e.note_sur, 0)) -
+                     (c.reference_note * 20.0 / NULLIF(c.reference_note_sur, 0))) AS biais_moyen_sur_20,
+                 AVG(CASE WHEN ABS((e.ai_note_totale * 20.0 / NULLIF(e.note_sur, 0)) -
+                                   (c.reference_note * 20.0 / NULLIF(c.reference_note_sur, 0))) <= 1.0
+                          THEN 1.0 ELSE 0.0 END) AS within_one_point,
+                 AVG(CASE WHEN ABS((e.ai_note_totale * 20.0 / NULLIF(e.note_sur, 0)) -
+                                   (c.reference_note * 20.0 / NULLIF(c.reference_note_sur, 0))) <= 2.0
+                          THEN 1.0 ELSE 0.0 END) AS within_two_points
+               FROM calibration_cases c
+               JOIN exams e ON e.id = c.exam_id
+               WHERE c.professor_id = ?""",
+            (professor_id,),
+        ).fetchone()
+
+        approved_with_change = conn.execute(
+            """SELECT COUNT(*) FROM exams
+               WHERE professor_id = ? AND review_status = 'approved'
+                 AND ai_note_totale IS NOT NULL
+                 AND ABS(note_totale - ai_note_totale) > 0.001""",
+            (professor_id,),
+        ).fetchone()[0]
+        approved_total = review_counts.get("approved", 0)
+
+    return {
+        "review": {
+            "pending_review": review_counts.get("pending_review", 0),
+            "needs_revision": review_counts.get("needs_revision", 0),
+            "approved": approved_total,
+            "approved_with_note_change": approved_with_change,
+            "manual_note_change_rate": round(approved_with_change / approved_total, 4) if approved_total else None,
+        },
+        "calibration": {
+            "count": quality["count"] or 0,
+            "mae_sur_20": round(quality["mae_sur_20"], 3) if quality["mae_sur_20"] is not None else None,
+            "biais_moyen_sur_20": round(quality["biais_moyen_sur_20"], 3) if quality["biais_moyen_sur_20"] is not None else None,
+            "within_one_point": round(quality["within_one_point"], 4) if quality["within_one_point"] is not None else None,
+            "within_two_points": round(quality["within_two_points"], 4) if quality["within_two_points"] is not None else None,
+        },
+    }

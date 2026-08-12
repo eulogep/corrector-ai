@@ -54,6 +54,16 @@ SUBJECT_CACHE_REQUESTS_TOTAL = Counter(
     "Résultats des tentatives de lecture du cache de sujets.",
     ("result",),
 )
+REVIEW_ACTIONS_TOTAL = Counter(
+    "corrector_ai_review_actions_total",
+    "Décisions de revue humaine enregistrées pour les propositions IA.",
+    ("status",),
+)
+CALIBRATION_CASES_TOTAL = Counter(
+    "corrector_ai_calibration_cases_total",
+    "Cas de calibration humaine enregistrés dans le pilote.",
+    ("operation",),
+)
 
 
 def set_request_id(request_id: str):
@@ -139,6 +149,18 @@ def record_ai_retry(provider: str, operation: str, attempt: int, delay_seconds: 
         attempt=attempt,
         delay_ms=round(delay_seconds * 1000, 2),
     )
+
+
+def record_review_action(status: str) -> None:
+    """Compter une décision humaine sans inclure l’identité ou le contenu de la copie."""
+    REVIEW_ACTIONS_TOTAL.labels(status=status).inc()
+    _log("review_action_recorded", request_id=request_id_context.get(), status=status)
+
+
+def record_calibration_case(operation: str) -> None:
+    """Compter la collecte d’une référence humaine pour suivre le pilote."""
+    CALIBRATION_CASES_TOTAL.labels(operation=operation).inc()
+    _log("calibration_case_recorded", request_id=request_id_context.get(), operation=operation)
 
 
 def prometheus_metrics() -> bytes:

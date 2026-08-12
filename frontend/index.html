@@ -40,6 +40,7 @@
 <a href="#" data-page="corriger"><span class="icon">📝</span>Corriger une copie</a>
 <a href="#" data-page="eleves"><span class="icon">👥</span>Élèves</a>
 <a href="#" data-page="historique"><span class="icon">📚</span>Historique</a>
+<a href="#" data-page="pilote"><span class="icon">🧪</span>Pilote & revue</a>
 <a href="#" data-page="rapports"><span class="icon">📄</span>Rapports</a>
 </nav>
 <div class="user-box">
@@ -166,8 +167,10 @@
 <div><h3>Résultat de la correction</h3><p class="text-muted text-sm" id="result-info"></p></div>
 <div class="big-note" id="result-note"></div>
 </div>
-<div id="result-appreciation" class="card mb-20" style="border-left:3px solid var(--primary)"></div>
-<div id="result-anomaly" style="display:none" class="card mb-20" style="border-left:3px solid var(--danger);color:var(--danger)"></div>
+	<div id="result-appreciation" class="card mb-20" style="border-left:3px solid var(--primary)"></div>
+	<div id="result-review" class="card mb-20" style="border-left:3px solid var(--accent)"></div>
+	<div id="result-anomaly" style="display:none" class="card mb-20" style="border-left:3px solid var(--danger);color:var(--danger)"></div>
+
 <h4 class="mb-12">Détail par exercice</h4>
 <div id="result-exercises"></div>
 <div class="mt-20 flex-between">
@@ -199,7 +202,24 @@
 <input placeholder="Filtrer par matière..." id="filter-matiere" oninput="loadHistory()">
 <select id="filter-classe" onchange="loadHistory()"><option value="">Toutes les classes</option></select>
 </div>
-<div class="card"><div class="table-wrap"><table><thead><tr><th>Élève</th><th>Classe</th><th>Matière</th><th>Note</th><th>Date</th><th>Anomalie</th><th></th></tr></thead><tbody id="history-table"></tbody></table></div></div>
+<div class="card"><div class="table-wrap"><table><thead><tr><th>Élève</th><th>Classe</th><th>Matière</th><th>Note</th><th>Revue</th><th>Date</th><th>Anomalie</th><th></th></tr></thead><tbody id="history-table"></tbody></table></div></div>
+</div>
+
+<!-- PILOTE -->
+<div class="page" id="page-pilote">
+<h2 class="page-title">🧪 Pilote & revue humaine</h2>
+<p class="text-muted mb-20">Les propositions IA ne deviennent des notes finales qu’après validation. Utilisez cette page pour suivre le pilote et comparer les résultats à une référence humaine.</p>
+<div class="kpi-grid">
+<div class="kpi-card"><div class="kpi-label">À relire</div><div class="kpi-value" id="pilot-pending">0</div></div>
+<div class="kpi-card"><div class="kpi-label">À corriger</div><div class="kpi-value" id="pilot-revision">0</div></div>
+<div class="kpi-card"><div class="kpi-label">Validées</div><div class="kpi-value" id="pilot-approved">0</div></div>
+<div class="kpi-card"><div class="kpi-label">Écart moyen /20</div><div class="kpi-value" id="pilot-mae">—</div></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px" class="mt-20">
+<div class="card"><h3>File de relecture</h3><p class="text-sm text-muted mt-8">Ouvrez une copie pour valider, modifier ou demander une relecture.</p><div class="table-wrap mt-12"><table><thead><tr><th>Élève</th><th>Matière</th><th>Note IA</th><th></th></tr></thead><tbody id="pilot-review-queue"></tbody></table></div></div>
+<div class="card"><h3>Ajouter une référence humaine</h3><p class="text-sm text-muted mt-8">Réservez cette saisie à une copie déjà évaluée indépendamment par un correcteur humain.</p><div class="field mt-12"><label>ID de la copie</label><input id="pilot-exam-id" type="number" min="1" placeholder="Ex. 42"></div><div class="row"><div class="field"><label>Note humaine</label><input id="pilot-reference-note" type="number" min="0" step="0.25"></div><div class="field"><label>Sur</label><input id="pilot-reference-sur" type="number" min="1" value="20" step="0.25"></div></div><div class="field"><label>Source</label><input id="pilot-reference-source" value="double_correction_humaine" maxlength="200"></div><div class="field"><label>Notes de calibration (facultatif)</label><textarea id="pilot-reference-notes" rows="2" maxlength="2000" placeholder="Ex. écriture peu lisible, exercice 3 ambigu"></textarea></div><button class="btn btn-primary" onclick="submitCalibration()">Enregistrer la référence</button></div>
+</div>
+<div class="card mt-20"><h3>Interprétation</h3><p id="pilot-quality-summary" class="text-muted">Ajoutez des références humaines pour calculer l’écart moyen, la part des notes à ±1 point et le biais du modèle.</p></div>
 </div>
 
 <!-- RAPPORTS -->

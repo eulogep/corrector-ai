@@ -15,7 +15,8 @@ Corrector AI est une application open source, auto-hébergeable et pensée pour 
 |---|---|---|
 | [Installation locale](#démarrage-rapide) | [API](#api-et-contrats) | [Guide de contribution](CONTRIBUTING.md) |
 | [Déploiement Docker](docs/DEPLOYMENT.md) | [Runbook observabilité](docs/OBSERVABILITY.md) | [Signaler un bug](https://github.com/eulogep/corrector-ai/issues/new/choose) |
-| [Démo](https://corrector-ai.onrender.com) | [Stratégie IA](#fiabilité-des-fournisseurs-ia) | [Sécurité](SECURITY.md) |
+| [Protocole de pilote](docs/PILOT.md) | [Stratégie IA](#fiabilité-des-fournisseurs-ia) | [Sécurité](SECURITY.md) |
+| [Démo](https://corrector-ai.onrender.com) | [API](#api-et-contrats) | [Contribuer](CONTRIBUTING.md) |
 
 ## Pourquoi ce projet
 
@@ -111,7 +112,7 @@ Chaque requête possède un `X-Request-ID`. Les appels IA produisent des traces 
 | `corrector_ai_ai_retries_total` | Dégradation fournisseur ou limites de quota |
 | `corrector_ai_subject_cache_requests_total` | Efficacité et disponibilité du cache Redis |
 
-Les règles Prometheus alertent sur la cible indisponible, un taux d’échec supérieur à 10 %, une P95 supérieure à 12 secondes, une tempête de réessais et une indisponibilité fournisseur durable. Les modèles webhook et e-mail Alertmanager sont décrits dans le [guide de déploiement](docs/DEPLOYMENT.md).
+Les règles Prometheus alertent sur la cible indisponible, un taux d’échec supérieur à 10 %, une P95 supérieure à 12 secondes, une tempête de réessais et une indisponibilité fournisseur durable. Les modèles webhook et e-mail Alertmanager sont décrits dans le [guide de déploiement](docs/DEPLOYMENT.md). Le parcours de revue humaine, les indicateurs de calibration et les conditions de test réel sont détaillés dans le [protocole de pilote](docs/PILOT.md).
 
 ## Réduire la latence sans sacrifier la qualité
 

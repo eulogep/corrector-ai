@@ -69,6 +69,7 @@ def _generate_pdf(exam: dict, exercises: list) -> str:
         ["Matière", exam.get("matiere", "")],
         ["Date", exam.get("date_examen", "")],
         ["Note", f"{exam.get('note_totale', 0)} / {exam.get('note_sur', 20)}"],
+        ["Statut de revue", {"pending_review": "À relire par l’enseignant", "needs_revision": "À corriger par l’enseignant", "approved": "Validée par l’enseignant"}.get(exam.get("review_status"), "À relire par l’enseignant")],
     ]
     info_table = Table(info_data, colWidths=[4*cm, 12*cm])
     info_table.setStyle(TableStyle([
@@ -160,6 +161,12 @@ async def send_email_report(data: EmailRequest, prof: dict = Depends(get_current
     if not exam or exam["professor_id"] != prof["id"]:
         raise HTTPException(status_code=404, detail="Copie non trouvée")
 
+    if exam.get("review_status") != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="La copie doit être validée par l’enseignant avant son envoi par email.",
+        )
+
     exercises = get_exercises_by_exam(data.exam_id)
     filepath = _generate_pdf(exam, exercises)
 
@@ -202,7 +209,7 @@ async def export_csv_classe(classe: str, prof: dict = Depends(get_current_profes
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
-    writer.writerow(["Nom", "Prénom", "Matière", "Date", "Note", "Sur", "Appréciation"])
+    writer.writerow(["Nom", "Prénom", "Matière", "Date", "Note", "Sur", "Statut de revue", "Appréciation"])
 
     for student in students_in_class:
         exams = get_exams_by_student(student["id"])
@@ -211,6 +218,7 @@ async def export_csv_classe(classe: str, prof: dict = Depends(get_current_profes
                 student["nom"], student["prenom"],
                 exam["matiere"], exam["date_examen"],
                 exam["note_totale"], exam["note_sur"],
+                exam.get("review_status", "pending_review"),
                 exam.get("appreciation", ""),
             ])
 

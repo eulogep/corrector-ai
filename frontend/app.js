@@ -83,6 +83,7 @@ function navigate(page) {
   else if (page === 'eleves') loadStudents();
   else if (page === 'corriger') initCorrection();
   else if (page === 'historique') loadHistory();
+  else if (page === 'pilote') loadPilot();
 }
 
 document.querySelectorAll('.sidebar nav a').forEach(a => {
@@ -426,6 +427,7 @@ function showResults(data, req) {
   document.getElementById('result-note').textContent = `${data.note_totale} / ${data.note_sur}`;
   document.getElementById('result-info').textContent = `${req.matiere} • ${req.niveau} • ${req.date_examen}`;
   document.getElementById('result-appreciation').innerHTML = `<b>Appréciation :</b> ${data.appreciation}`;
+  renderReviewControls(data);
   if (data.alerte_anomalie) {
     const el = document.getElementById('result-anomaly');
     el.style.display = 'block'; el.innerHTML = `⚠️ <b>Alerte anomalie :</b> ${data.message_anomalie}`;
@@ -435,7 +437,46 @@ function showResults(data, req) {
   (data.exercices || []).forEach(ex => {
     container.innerHTML += `<div class="exercise-result"><div class="er-head"><span><b>Exercice ${ex.numero}</b></span><span class="pts" style="color:${ex.correct?'var(--success)':'var(--text)'}">${ex.points_obtenus} / ${ex.points_max}</span></div><div class="er-feedback">${ex.feedback}</div>${ex.erreurs_types?`<div class="er-errors">⚠ ${ex.erreurs_types}</div>`:''}</div>`;
   });
-  toast('Correction terminée !');
+  toast(data.review_status === 'approved' ? 'Copie validée par l’enseignant.' : 'Proposition IA enregistrée : une validation humaine est requise.');
+}
+
+function reviewStatusLabel(status) {
+  return {
+    pending_review: 'À relire par l’enseignant',
+    needs_revision: 'À corriger par l’enseignant',
+    approved: 'Validée par l’enseignant',
+  }[status || 'pending_review'] || 'À relire par l’enseignant';
+}
+
+function renderReviewControls(data) {
+  const status = data.review_status || 'pending_review';
+  const el = document.getElementById('result-review');
+  if (status === 'approved') {
+    const aiNote = data.ai_note_totale == null ? '—' : `${data.ai_note_totale} / ${data.note_sur}`;
+    el.innerHTML = `<b>Décision de l’enseignant :</b> <span class="badge badge-success">${reviewStatusLabel(status)}</span><p class="text-sm text-muted mt-8">Proposition IA initiale : ${aiNote}. Validation : ${data.reviewed_at || '—'}.</p>`;
+    return;
+  }
+  el.innerHTML = `<h4 style="margin-top:0">Validation humaine requise</h4>
+    <p class="text-sm text-muted">La proposition IA n’est pas une note finale. Vérifiez chaque exercice avant de valider ou de renvoyer la copie en correction.</p>
+    <div class="row"><div class="field"><label>Note finale (optionnelle)</label><input id="review-final-note" type="number" min="0" max="${data.note_sur || 20}" step="0.25" value="${data.note_totale ?? ''}"></div>
+    <div class="field"><label>Commentaire de revue</label><input id="review-comment" maxlength="1000" placeholder="Ex. exercice 2 réévalué après relecture"></div></div>
+    <div class="field"><label>Appréciation finale (optionnelle)</label><textarea id="review-final-appreciation" rows="2">${data.appreciation || ''}</textarea></div>
+    <div style="display:flex;gap:10px"><button class="btn btn-primary" onclick="submitReview('approved')">Valider comme note finale</button><button class="btn btn-secondary" onclick="submitReview('needs_revision')">À corriger / revoir</button></div>`;
+}
+
+async function submitReview(status) {
+  if (!currentExamId) return toast('Aucune copie à valider', 'error');
+  const noteValue = document.getElementById('review-final-note')?.value;
+  const payload = {
+    status,
+    comment: document.getElementById('review-comment')?.value || '',
+    final_note: noteValue === '' || noteValue == null ? null : parseFloat(noteValue),
+    final_appreciation: document.getElementById('review-final-appreciation')?.value || null,
+  };
+  const data = await api(`/api/grading/exams/${currentExamId}/review`, { method: 'POST', body: payload });
+  if (!data || data.detail) return toast(data?.detail || 'Impossible d’enregistrer la revue', 'error');
+  showResults(data, { matiere: data.matiere, niveau: data.niveau, date_examen: data.date_examen });
+  if (status === 'approved') toast('Note finale validée : l’envoi du rapport est désormais autorisé.');
 }
 
 function resetCorrection() { exerciseCount = 0; navigate('corriger'); }
@@ -571,9 +612,10 @@ async function loadHistory() {
   sel.innerHTML = '<option value="">Toutes les classes</option>';
   classes.forEach(c => sel.innerHTML += `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`);
   exams.forEach(e => {
-    tbody.innerHTML += `<tr><td>${e.student_prenom} ${e.student_nom}</td><td>${e.classe}</td><td>${e.matiere}</td><td><span class="badge ${e.note_totale/e.note_sur>=0.5?'badge-success':'badge-danger'}">${e.note_totale}/${e.note_sur}</span></td><td>${e.date_examen||'—'}</td><td>${e.alerte_anomalie?'<span class="badge badge-danger">⚠</span>':'—'}</td><td><button class="btn btn-sm btn-secondary" onclick="viewExam(${e.id})">Voir</button></td></tr>`;
+    const reviewClass = e.review_status === 'approved' ? 'badge-success' : e.review_status === 'needs_revision' ? 'badge-danger' : 'badge-warning';
+    tbody.innerHTML += `<tr><td>${e.student_prenom} ${e.student_nom}</td><td>${e.classe}</td><td>${e.matiere}</td><td><span class="badge ${e.note_totale/e.note_sur>=0.5?'badge-success':'badge-danger'}">${e.note_totale}/${e.note_sur}</span></td><td><span class="badge ${reviewClass}">${reviewStatusLabel(e.review_status)}</span></td><td>${e.date_examen||'—'}</td><td>${e.alerte_anomalie?'<span class="badge badge-danger">⚠</span>':'—'}</td><td><button class="btn btn-sm btn-secondary" onclick="viewExam(${e.id})">Revoir</button></td></tr>`;
   });
-  if (!exams.length) tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Aucune copie</td></tr>';
+  if (!exams.length) tbody.innerHTML = '<tr><td colspan="8" class="text-muted">Aucune copie</td></tr>';
 }
 
 async function viewExam(id) {
@@ -582,6 +624,60 @@ async function viewExam(id) {
   currentExamId = id;
   navigate('corriger');
   showResults(data, { matiere: data.matiere, niveau: data.niveau, date_examen: data.date_examen });
+}
+
+// ━━━ Pilote : revue et calibration ━━━
+async function loadPilot() {
+  const [metrics, queue] = await Promise.all([
+    api('/api/grading/pilot/metrics'),
+    api('/api/grading/reviews/queue?status=pending_review&limit=50'),
+  ]);
+  if (!metrics || !queue) return;
+  const review = metrics.review || {};
+  const calibration = metrics.calibration || {};
+  document.getElementById('pilot-pending').textContent = review.pending_review ?? 0;
+  document.getElementById('pilot-revision').textContent = review.needs_revision ?? 0;
+  document.getElementById('pilot-approved').textContent = review.approved ?? 0;
+  document.getElementById('pilot-mae').textContent = calibration.mae_sur_20 == null ? '—' : calibration.mae_sur_20.toFixed(2);
+  const tbody = document.getElementById('pilot-review-queue');
+  tbody.innerHTML = '';
+  (queue.exams || []).forEach(exam => {
+    tbody.innerHTML += `<tr><td>${exam.student_prenom} ${exam.student_nom}</td><td>${exam.matiere}</td><td>${exam.ai_note_totale ?? exam.note_totale}/${exam.note_sur}</td><td><button class="btn btn-sm btn-secondary" onclick="viewExam(${exam.id})">Revoir</button></td></tr>`;
+  });
+  if (!(queue.exams || []).length) tbody.innerHTML = '<tr><td colspan="4" class="text-muted">Aucune copie en attente.</td></tr>';
+  const summary = document.getElementById('pilot-quality-summary');
+  if (!calibration.count) {
+    summary.textContent = 'Ajoutez des références humaines pour calculer l’écart moyen, la part des notes à ±1 point et le biais du modèle.';
+  } else {
+    const one = ((calibration.within_one_point || 0) * 100).toFixed(0);
+    const two = ((calibration.within_two_points || 0) * 100).toFixed(0);
+    const bias = calibration.biais_moyen_sur_20 == null ? '—' : calibration.biais_moyen_sur_20.toFixed(2);
+    summary.textContent = `${calibration.count} référence(s) : MAE ${calibration.mae_sur_20.toFixed(2)}/20 ; ${one}% des notes à ±1 point ; ${two}% à ±2 points ; biais moyen ${bias}/20.`;
+  }
+}
+
+async function submitCalibration() {
+  const examId = parseInt(document.getElementById('pilot-exam-id').value);
+  const referenceNote = parseFloat(document.getElementById('pilot-reference-note').value);
+  const referenceSur = parseFloat(document.getElementById('pilot-reference-sur').value || 20);
+  if (!examId || Number.isNaN(referenceNote) || Number.isNaN(referenceSur)) {
+    return toast('Indiquez l’ID de copie, la note humaine et son barème.', 'error');
+  }
+  const data = await api('/api/grading/pilot/calibration', {
+    method: 'POST',
+    body: {
+      exam_id: examId,
+      reference_note: referenceNote,
+      reference_note_sur: referenceSur,
+      reference_source: document.getElementById('pilot-reference-source').value || 'double_correction_humaine',
+      notes: document.getElementById('pilot-reference-notes').value || '',
+    },
+  });
+  if (!data || data.detail) return toast(data?.detail || 'Impossible d’enregistrer la référence', 'error');
+  toast('Référence humaine enregistrée pour la calibration.');
+  document.getElementById('pilot-reference-note').value = '';
+  document.getElementById('pilot-reference-notes').value = '';
+  loadPilot();
 }
 
 // ━━━ Init ━━━
