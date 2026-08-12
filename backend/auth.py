@@ -9,6 +9,7 @@ import bcrypt
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from backend.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS
+from backend.models.database import get_professor_by_id
 
 # Schéma Bearer pour les headers Authorization
 security = HTTPBearer(auto_error=False)
@@ -62,7 +63,25 @@ async def get_current_professor(
             detail="Token manquant. Connectez-vous d'abord.",
         )
     payload = decode_token(credentials.credentials)
+    try:
+        professor_id = int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invalide ou expiré",
+        )
+
+    # Un JWT valide ne suffit pas : le compte doit encore exister dans le stockage actif.
+    # Cette vérification évite que des jetons issus d'une base réinitialisée produisent
+    # des erreurs de clé étrangère ou donnent accès à des données orphelines.
+    professor = get_professor_by_id(professor_id)
+    if not professor:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expirée. Connectez-vous à nouveau.",
+        )
+
     return {
-        "id": int(payload["sub"]),
-        "email": payload["email"],
+        "id": professor["id"],
+        "email": professor["email"],
     }

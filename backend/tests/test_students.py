@@ -94,3 +94,19 @@ async def test_get_student_progression(prof_token):
         data = resp.json()
         assert data["nb_exams"] == 0
         assert data["progression"] == {}
+
+
+@pytest.mark.asyncio
+async def test_orphaned_professor_token_is_rejected():
+    """Un JWT dont le professeur a disparu doit être rejeté avec 401, jamais avec 500."""
+    transport = ASGITransport(app=app)
+    orphan_token = create_token(9_999_999, "orphaned@corrector.ai")
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/students/",
+            json={"nom": "Test", "prenom": "Orphelin", "classe": "4ème A"},
+            headers={"Authorization": f"Bearer {orphan_token}"},
+        )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Session expirée. Connectez-vous à nouveau."
