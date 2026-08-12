@@ -1,0 +1,46 @@
+name: Proposition de fonctionnalité
+description: Proposer une amélioration utile aux enseignants, administrateurs ou contributeurs
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Expliquez le besoin et la valeur attendue. Ne partagez aucune donnée d’élève ou secret.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problème ou besoin
+      description: Pour qui est-ce un problème et dans quelle situation ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposition
+      description: Décrivez le comportement attendu, sans imposer de solution technique si elle n’est pas nécessaire.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critères d’acceptation
+      placeholder: |
+        - …
+        - …
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Domaine
+      options:
+        - Pédagogie et barèmes
+        - OCR et documents
+        - Correction et feedback
+        - Vie privée et sécurité
+        - Déploiement et exploitation
+        - Documentation ou contribution
+        - Frontend et accessibilité
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées

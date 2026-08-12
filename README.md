@@ -1,254 +1,149 @@
-# 🎓 Corrector AI
+# Corrector AI
 
-<div align="center">
+[![Tests backend](https://github.com/eulogep/corrector-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/eulogep/corrector-ai/actions/workflows/ci.yml)
+[![Licence MIT](https://img.shields.io/badge/licence-MIT-2563eb.svg)](LICENSE)
+[![Contributions](https://img.shields.io/badge/contributions-welcome-16a34a.svg)](CONTRIBUTING.md)
+[![Stars](https://img.shields.io/github/stars/eulogep/corrector-ai?style=social)](https://github.com/eulogep/corrector-ai/stargazers)
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Claude](https://img.shields.io/badge/Claude-Opus_4.5-D4A853?style=for-the-badge&logo=anthropic&logoColor=white)
-![DeepSeek](https://img.shields.io/badge/DeepSeek-Fallback-1A1A2E?style=for-the-badge)
-![Gemini](https://img.shields.io/badge/Gemini-Vision-4285F4?style=for-the-badge&logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-15%2F15_✅-22C55E?style=for-the-badge)
-![RGPD](https://img.shields.io/badge/RGPD-Conforme-6366F1?style=for-the-badge)
-![License](https://img.shields.io/badge/Licence-MIT-F59E0B?style=for-the-badge)
+> **Correction assistée de copies pour le système éducatif français.** Corrector AI structure les sujets, lit les réponses, génère une proposition de barème et produit un retour pédagogique détaillé. La note et le barème restent soumis à la validation de l’enseignant.
 
-**Correction intelligente de copies manuscrites par IA — OCR (Gemini Vision) + LLM (Claude)**  
-**pour les professeurs du système éducatif français.**
+Corrector AI est une application open source, auto-hébergeable et pensée pour des flux de travail pédagogiques réels : OCR, barèmes, correction structurée, rapports, suivi des élèves et exploitation de production. Les sorties des fournisseurs IA sont validées par des contrats Pydantic stricts ; une erreur fournisseur ne devient jamais une note simulée.
 
-### 🌐 [Demo live → corrector-ai.onrender.com](https://corrector-ai.onrender.com)
+**English summary.** Corrector AI is a self-hostable, teacher-supervised grading assistant for French educational workflows. It combines document extraction, OCR, strict structured LLM outputs, monitoring and deployment tooling. It never returns a fabricated grade when an AI provider is unavailable.
 
-[📖 API Docs](#-api-endpoints) · [🐛 Signaler un bug](https://github.com/eulogep/corrector-ai/issues) · [💡 Proposer une feature](https://github.com/eulogep/corrector-ai/issues)
+| Démarrer | Explorer | Participer |
+|---|---|---|
+| [Installation locale](#démarrage-rapide) | [API](#api-et-contrats) | [Guide de contribution](CONTRIBUTING.md) |
+| [Déploiement Docker](docs/DEPLOYMENT.md) | [Runbook observabilité](docs/OBSERVABILITY.md) | [Signaler un bug](https://github.com/eulogep/corrector-ai/issues/new/choose) |
+| [Démo](https://corrector-ai.onrender.com) | [Stratégie IA](#fiabilité-des-fournisseurs-ia) | [Sécurité](SECURITY.md) |
 
-</div>
+## Pourquoi ce projet
 
----
+La correction de copies demande du temps, de la cohérence et une attention pédagogique soutenue. Corrector AI n’a pas vocation à remplacer le jugement d’un enseignant : il réduit le travail répétitif, structure les éléments de correction et signale les incertitudes afin que l’enseignant puisse prendre la décision finale.
 
-## 🎯 Le problème
-
-Un professeur français passe **8 à 12 heures par semaine** à corriger des copies manuellement — un travail répétitif, épuisant, source d'incohérences et sans valeur ajoutée pédagogique.
-
-## 💡 La solution
-
-Corrector AI automatise tout le pipeline de correction :
-
-```
-📸 Photo de la copie  →  🔍 OCR Gemini  →  🤖 Correction Claude  →  📊 Rapport PDF  →  📧 Email élève
-```
-
----
-
-## ✨ Fonctionnalités
-
-| Fonctionnalité | Description |
+| Besoin | Réponse de Corrector AI |
 |---|---|
-| 📸 **OCR manuscrit** | Scan de copies via Gemini Vision — cursive, script, écriture rapide |
-| 🤖 **Correction IA** | Notation automatique avec Claude (barème /20, feedback pédagogique) |
-| 👤 **Profils élèves** | CRUD complet avec historique longitudinal de toutes les copies |
-| 📈 **Dashboard** | KPIs, graphiques, progression par matière et par classe |
-| 🚨 **Détection d'anomalies** | Alerte si une note est statistiquement inhabituelle pour l'élève |
-| 📄 **Rapport PDF** | Génération ReportLab avec détail exercice par exercice |
-| 📧 **Envoi email** | Rapport envoyé à l'élève automatiquement via SMTP |
-| 📊 **Export CSV** | Notes par classe exportables en un clic |
-| 🔒 **Données maîtrisées** | SQLite local ; les appels OCR/LLM envoient le contenu aux fournisseurs configurés, à encadrer par votre politique RGPD |
-| 📡 **Observabilité IA** | Traces corrélées, métriques Prometheus protégées, alertes et dashboard Grafana |
-| 🔁 **Résilience fournisseurs** | Réessais exponentiels bornés et bascule Claude → DeepSeek pour correction et barèmes |
-| ⚡ **Cache de sujets** | Redis isolé par professeur pour éviter de retraiter le même sujet pendant la durée configurée |
-| 🧪 **Charge concurrente** | Scénario Locust versionné, avec appels IA désactivés par défaut pour protéger les quotas |
+| Sujet PDF ou scanné | Docling, PyMuPDF et OCR Gemini en repli contrôlé |
+| Barème exploitable | Extraction JSON validée : exercices, points, réponses attendues et confiance |
+| Correction détaillée | Claude, avec DeepSeek comme bascule, points par exercice et feedback |
+| Confiance opérationnelle | Validation Pydantic, erreurs HTTP explicites, traces corrélées et métriques Prometheus |
+| Auto-hébergement | Docker, Redis, Prometheus, Grafana, Alertmanager et Caddy optionnel |
 
----
+## Fonctionnalités principales
 
-## 🆚 Pourquoi pas Examino, GradingPal ou GradeAI ?
+| Domaine | Capacités actuelles |
+|---|---|
+| OCR et documents | Upload de PDF ou images, extraction structurée par exercice, détection de lisibilité |
+| Barèmes | Génération de barème depuis un sujet, total de points cohérent et validation humaine avant usage |
+| Correction | Score par exercice, feedback constructif, appréciation et alerte d’anomalie contextualisée |
+| Suivi pédagogique | Élèves, historique de copies, progression par matière, rapports PDF et export CSV |
+| Fiabilité IA | Schémas stricts, erreurs normalisées, réessais bornés et repli Claude → DeepSeek |
+| Exploitation | Santé applicative, Prometheus, Grafana, Alertmanager, Redis et scénario Locust |
 
-| Critère | Examino 🇫🇷 | GradingPal 🇺🇸 | GradeAI | **Corrector AI** |
-|---|:---:|:---:|:---:|:---:|
-| Profil élève individuel | ❌ | ❌ | ❌ | ✅ |
-| Historique longitudinal | ❌ | ❌ | ❌ | ✅ |
-| Détection d'anomalies | ❌ | ❌ | ❌ | ✅ |
-| Notes /20 système français | ✅ | ❌ | ❌ | ✅ |
-| RGPD — données locales | ⚠️ | ❌ | ❌ | ✅ |
-| Open Source | ❌ | ❌ | ✅ | ✅ |
-| Auto-hébergeable | ❌ | ❌ | ✅ | ✅ |
+## Démarrage rapide
 
----
-
-## 🏗️ Architecture
-
-```
-corrector-ai/
-├── backend/
-│   ├── app.py              # FastAPI — 19 endpoints
-│   ├── auth.py             # JWT + bcrypt
-│   ├── config.py           # Auto-détection Render (/data) vs local
-│   ├── models/
-│   │   └── database.py     # SQLite — 4 tables
-│   ├── routes/
-│   │   ├── ocr.py          # Upload image → OCR Gemini
-│   │   ├── grading.py      # Correction Claude/DeepSeek
-│   │   ├── students.py     # CRUD élèves + progression
-│   │   └── reports.py      # PDF + email + CSV
-│   ├── services/
-│   │   ├── vision.py       # Gemini 1.5 Pro Vision
-│   │   └── llm.py          # Claude → DeepSeek → erreurs explicites
-│   └── tests/              # 7/7 tests pytest ✅
-├── frontend/
-│   ├── index.html          # SPA vanille JS — 6 pages
-│   ├── style.css           # Design dark premium
-│   └── app.js              # Logique SPA + graphiques Canvas
-├── tests/
-│   └── test_api_live.py    # 15/15 tests API live ✅
-└── render.yaml             # Config déploiement Render
-```
-
----
-
-## 🚀 Déploiement de production
-
-Le projet inclut une image Docker, Docker Compose, Prometheus et une configuration HTTPS Caddy. Consultez le **[guide complet de déploiement](docs/DEPLOYMENT.md)** pour préparer les secrets, lancer l'application, activer le monitoring, sauvegarder les données et mettre à jour la production.
-
-## ⚡ Installation
+### Docker Compose — recommandé pour une instance complète
 
 ```bash
-# 1. Clone
 git clone https://github.com/eulogep/corrector-ai.git
-cd corrector-ai/backend
+cd corrector-ai
+cp .env.docker.example .env.production
+# Renseigner les clés IA, JWT_SECRET_KEY et REDIS_PASSWORD dans .env.production
+mkdir -p .secrets
+umask 077
+openssl rand -hex 32 > .secrets/metrics_token
+openssl rand -base64 32 > .secrets/grafana_admin_password
 
-# 2. Dépendances
-pip install -r requirements.txt
-
-# 3. Configuration
-cp ../.env.example ../.env
-# → Éditez .env avec vos clés API (voir ci-dessous)
-
-# 4. Lancement
-cd ..
-python -m backend.app
-# → http://localhost:8000        (frontend)
-# → http://localhost:8000/docs   (Swagger API)
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.monitoring.yml \
+  up --build --detach
 ```
 
----
+L’application est ensuite disponible localement sur `http://127.0.0.1:8000`, sa documentation sur `/docs`, Prometheus sur le port local `9090` et Grafana sur le port local `3000`. Le guide [DEPLOYMENT.md](docs/DEPLOYMENT.md) couvre TLS, sauvegardes, Redis, alertes, Locust et les procédures de retour arrière.
 
-## 🔑 Variables d'environnement (.env)
-
-| Variable | Description | Requis |
-|---|---|:---:|
-| `GEMINI_API_KEY` | Clé Google Gemini pour l'OCR | Oui pour les endpoints OCR |
-| `ANTHROPIC_API_KEY` | Clé Anthropic Claude pour le barème et la correction principale | Oui, ou DeepSeek pour la correction |
-| `DEEPSEEK_API_KEY` | Clé DeepSeek de repli pour la correction | Recommandée |
-| `JWT_SECRET_KEY` | Secret pour les tokens JWT | **Oui** |
-| `SMTP_HOST/USER/PASSWORD` | Config email | Non |
-
-> **Aucune note ni transcription simulée** : sans clé de fournisseur, les endpoints IA retournent une erreur HTTP `503` structurée. Cela évite qu'un résultat de démonstration soit confondu avec une correction réelle.
->
-> 🔄 **Chaîne LLM** : Claude → DeepSeek. Le premier fournisseur disponible produisant un JSON strictement valide est utilisé ; si tous échouent, l'API répond avec une erreur explicite.
-
----
-
-## 🧪 Tests
+### Développement local
 
 ```bash
-# Tests unitaires (mocks)
-cd corrector-ai
-python -m pytest backend/tests/ -v
-# 7/7 ✅
-
-# Tests API live (Render)
-python tests/test_api_live.py
-# 15/15 ✅ — Auth, Élèves, OCR, Correction, PDF, Nettoyage
+pip install -r backend/requirements.txt
+cp .env.example .env
+# Renseigner au moins JWT_SECRET_KEY, puis les clés IA nécessaires au flux testé.
+python -m backend.app
 ```
 
----
+Les endpoints IA répondent **503** lorsqu’aucun fournisseur n’est configuré. Ce comportement est volontaire : aucune transcription ou note de démonstration ne peut être confondue avec un résultat réel.
 
-## 🔌 API Endpoints
+## API et contrats
 
-### Auth
-| Méthode | Endpoint | Description |
-|---|---|---|
-| POST | `/api/auth/register` | Créer un compte professeur |
-| POST | `/api/auth/login` | Connexion (retourne JWT) |
+La documentation interactive est disponible sur `GET /docs`. Les principaux groupes d’API sont l’authentification, les élèves, les sujets, l’OCR, les corrections, les rapports et le dashboard.
 
-### OCR
-| Méthode | Endpoint | Description |
-|---|---|---|
-| POST | `/api/ocr/extract` | Upload image → JSON structuré par exercice |
-| POST | `/api/ocr/simple` | Upload image → texte brut |
-
-### Correction
-| Méthode | Endpoint | Description |
-|---|---|---|
-| POST | `/api/grading/grade` | Correction complète avec sauvegarde |
-| POST | `/api/grading/quick` | Correction rapide sans sauvegarde |
-
-### Élèves
-| Méthode | Endpoint | Description |
-|---|---|---|
-| GET/POST | `/api/students/` | Liste / Créer |
-| GET/PUT | `/api/students/{id}` | Profil / Modifier |
-| GET | `/api/students/{id}/progression` | Courbes par matière |
-| GET | `/api/students/{id}/exams` | Historique des copies |
-
-### Copies
-| Méthode | Endpoint | Description |
-|---|---|---|
-| GET | `/api/exams/{id}` | Détail d'une copie corrigée |
-| DELETE | `/api/exams/{id}` | Supprimer une copie |
-
-### Rapports
-| Méthode | Endpoint | Description |
-|---|---|---|
-| GET | `/api/reports/pdf/{id}` | Télécharger le rapport PDF |
-| POST | `/api/reports/email` | Envoyer par email |
-| GET | `/api/reports/csv/{classe}` | Export CSV des notes |
-
-### Stats
-| Méthode | Endpoint | Description |
-|---|---|---|
-| GET | `/api/stats/dashboard` | Métriques du professeur connecté |
-
----
-
-## 🛠️ Stack technique
-
-| Couche | Technologie |
+| Endpoint | Usage |
 |---|---|
-| **Backend** | Python 3.11 + FastAPI + Uvicorn |
-| **Base de données** | SQLite (natif — RGPD) |
-| **OCR** | Google Gemini 1.5 Pro Vision |
-| **LLM** | Claude → DeepSeek (fallback) → Mock |
-| **PDF** | ReportLab |
-| **Auth** | JWT (python-jose) + bcrypt |
-| **Frontend** | HTML / CSS / JS vanille (SPA) |
-| **Déploiement** | Render (disque persistant 1 GB) |
+| `POST /api/subjects/parse` | Extraire un sujet et proposer un barème validé |
+| `POST /api/subjects/validate` | Valider le barème avant persistance et correction |
+| `POST /api/ocr/extract` | Produire une lecture OCR structurée par exercice |
+| `POST /api/grading/quick` | Obtenir une correction sans sauvegarde |
+| `POST /api/grading/grade` | Corriger et enregistrer une copie rattachée à un élève |
+| `GET /healthz` | Vérifier la disponibilité de l’application |
+| `GET /metrics` | Exposer les métriques Prometheus protégées par jeton |
+
+## Fiabilité des fournisseurs IA
+
+Chaque réponse Gemini, Claude ou DeepSeek est décodée et validée avant utilisation. Les champs inattendus, scores incohérents, exercices dupliqués, totaux incompatibles et JSON mal formé sont rejetés. Une sortie invalide n’est pas réessayée : elle requiert une correction de prompt ou de fournisseur.
+
+Les indisponibilités transitoires suivent un backoff exponentiel borné. Avec la configuration par défaut, un fournisseur reçoit au maximum trois tentatives avec délais de `0,5 s`, puis `1 s`, plafonnés à `4 s`; après épuisement, le flux de correction ou de barème bascule de Claude vers DeepSeek lorsque celui-ci est configuré. L’OCR Gemini est réessayé, mais ne possède pas encore de second fournisseur.
+
+| Réglage | Valeur par défaut | Rôle |
+|---|---:|---|
+| `LLM_RETRY_MAX_ATTEMPTS` | `3` | Tentatives totales, appel initial inclus |
+| `LLM_RETRY_BASE_SECONDS` | `0.5` | Délai initial du backoff |
+| `LLM_RETRY_MAX_SECONDS` | `4` | Plafond de délai par tentative |
+| `SUBJECT_CACHE_TTL_SECONDS` | `86400` | Durée de cache des sujets déjà analysés |
+
+## Observabilité et production
+
+Chaque requête possède un `X-Request-ID`. Les appels IA produisent des traces JSON contenant l’opération, le fournisseur, le résultat, le code d’erreur et la durée, sans prompts, copies, noms, emails ou secrets. Grafana provisionne un tableau qui permet d’analyser débit, taux d’erreur, latence P95, réessais et erreurs par fournisseur.
+
+| Signal | Lecture utile |
+|---|---|
+| `corrector_ai_ai_calls_total` | Volume de succès et d’échecs par fournisseur et opération |
+| `corrector_ai_ai_call_duration_seconds` | Latence P50/P95 OCR, barème et correction |
+| `corrector_ai_ai_retries_total` | Dégradation fournisseur ou limites de quota |
+| `corrector_ai_subject_cache_requests_total` | Efficacité et disponibilité du cache Redis |
+
+Les règles Prometheus alertent sur la cible indisponible, un taux d’échec supérieur à 10 %, une P95 supérieure à 12 secondes, une tempête de réessais et une indisponibilité fournisseur durable. Les modèles webhook et e-mail Alertmanager sont décrits dans le [guide de déploiement](docs/DEPLOYMENT.md).
+
+## Réduire la latence sans sacrifier la qualité
+
+Commencez par observer la P95 par fournisseur et opération dans Grafana. Réduisez ensuite le volume de prompt, adaptez `max_tokens` à la tâche, mettez en cache les sujets déjà traités, limitez le parallélisme selon les quotas, conservez des délais de connexion courts et réutilisez les clients réseau lorsque la charge le justifie. Les SDK synchrones Claude et Gemini sont déjà exécutés hors de la boucle FastAPI, tandis que DeepSeek dispose d’un délai de connexion court pour accélérer la bascule.
+
+Le scénario `performance/locustfile.py` permet d’établir une ligne de base concurrente sans appels IA. L’option `LOCUST_INCLUDE_AI=true` ne doit être activée qu’en préproduction, avec des quotas de test approuvés.
+
+## Utilisation responsable des données
+
+Les données applicatives sont stockées localement dans SQLite et les résultats de sujets peuvent être mis en cache dans Redis. En revanche, l’OCR et les corrections envoient le contenu nécessaire aux fournisseurs IA configurés. Avant toute utilisation avec des élèves, votre établissement doit vérifier les conditions de traitement, la base légale, la conservation, les contrats fournisseurs et les droits d’accès applicables.
+
+La validation humaine reste indispensable avant de communiquer une note. N’utilisez pas Corrector AI comme unique dispositif de décision à fort impact sur un élève.
+
+## Contribuer
+
+Les contributions sont les bienvenues : tests, documentation, accessibilité, connecteurs, exemples de déploiement, compatibilité d’OCR local et amélioration de la qualité pédagogique. Consultez [CONTRIBUTING.md](CONTRIBUTING.md), le [code de conduite](CODE_OF_CONDUCT.md), le [support](SUPPORT.md) et la [politique de sécurité](SECURITY.md).
+
+Avant une pull request :
+
+```bash
+python -m pytest backend/tests/ -q
+python -m compileall -q backend performance
+```
+
+## Feuille de route
+
+Les prochaines priorités sont l’activation d’un second fournisseur OCR, une évaluation sur corpus anonymisé avec double correction humaine, le contrôle de concurrence par fournisseur, l’amélioration de l’accessibilité du frontend et des connecteurs institutionnels documentés.
+
+## Licence
+
+Corrector AI est distribué sous licence [MIT](LICENSE).
 
 ---
 
-## 🗺️ Roadmap
-
-- [x] Déploiement Render (URL publique) ✅
-- [x] Fallback multi-LLM (Claude → DeepSeek → Mock) ✅
-- [x] Tests API live automatisés (15/15) ✅
-- [ ] Application mobile (React Native)
-- [ ] Import CSV liste élèves
-- [ ] Graphiques de progression (Chart.js avancé)
-- [ ] Support multi-classes
-- [ ] Mode hors-ligne (modèle OCR local)
-- [ ] Intégration ENT (Pronote, EcoleDirecte)
-- [ ] OCR avancé avec Docling (IBM)
-
----
-
-## 🙏 Inspiré de
-
-- [AI-Handwrite-Grader](https://github.com/wongcyrus/AI-Handwrite-Grader) — pipeline scan → rapport → email
-- [GradeAI](https://github.com/GradeAI/gradeai) — structure API modulaire et correction par barème
-
----
-
-## 📜 Licence
-
-MIT — Fait avec ❤️ pour les enseignants français
-
----
-
-<div align="center">
-  <strong>⭐ Si ce projet vous est utile, n'oubliez pas de le star !</strong>
-</div>
+Si ce projet vous est utile, une étoile GitHub aide réellement d’autres enseignants, développeurs et établissements à le découvrir. Les retours concrets, issues bien décrites et contributions de documentation ont le même impact à long terme.

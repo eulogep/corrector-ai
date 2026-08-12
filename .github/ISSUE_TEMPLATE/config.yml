@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question ou aide d'utilisation
+    url: https://github.com/eulogep/corrector-ai/discussions
+    about: Utilisez les Discussions pour les questions générales lorsque cette fonctionnalité est activée.
+  - name: Signaler une vulnérabilité
+    url: https://github.com/eulogep/corrector-ai/security/advisories/new
+    about: N’utilisez pas une issue publique pour une vulnérabilité ou une fuite de données.
