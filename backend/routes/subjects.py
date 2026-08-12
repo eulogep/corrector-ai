@@ -12,6 +12,11 @@ from backend.config import UPLOADS_DIR, MAX_FILE_SIZE
 from backend.services.subject_parser import parse_subject
 from backend.models.database import save_subject, get_subject, list_subjects
 from backend.services.exceptions import AIServiceError
+from backend.services.persistent_storage import (
+    PersistentStorageError,
+    remove_temporary_file,
+    save_uploaded_bytes,
+)
 
 router = APIRouter(prefix="/api/subjects", tags=["Sujets"])
 
@@ -74,20 +79,31 @@ async def parse_subject_endpoint(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="Fichier trop volumineux (max 10 MB)")
 
-    # Sauvegarde temporaire (réutilisé pour pdf_path si validé ensuite)
     filename = f"subject_{uuid.uuid4().hex}{ext}"
-    filepath = os.path.join(UPLOADS_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(content)
+    try:
+        filepath, durable_reference = await save_uploaded_bytes(
+            professor_id=prof["id"],
+            category="subjects",
+            filename=filename,
+            content=content,
+            content_type=file.content_type or "application/octet-stream",
+        )
+    except PersistentStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "persistent_storage_unavailable", "message": str(exc)},
+        ) from exc
 
     try:
         bareme = await parse_subject(filepath, cache_namespace=f"professor:{prof['id']}")
-        bareme["pdf_path"] = filepath
+        bareme["pdf_path"] = durable_reference
         return bareme
     except AIServiceError:
         raise
     except Exception:
         raise HTTPException(status_code=500, detail="Erreur interne lors de l'analyse du sujet.")
+    finally:
+        remove_temporary_file(filepath)
 
 
 @router.post("/validate")

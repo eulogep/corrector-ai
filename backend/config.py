@@ -45,6 +45,15 @@ LLM_RETRY_MAX_SECONDS = max(
     LLM_RETRY_BASE_SECONDS, float(os.getenv("LLM_RETRY_MAX_SECONDS", "4"))
 )
 
+# ━━━ Persistance PostgreSQL et stockage Supabase ━━━
+# DATABASE_URL active PostgreSQL (Supabase ou autre service compatible). Sans cette
+# variable, SQLite reste disponible uniquement pour le développement et les tests.
+DATABASE_URL = _read_secret("DATABASE_URL")
+SUPABASE_URL = _read_secret("SUPABASE_URL").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = _read_secret("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "corrector-private")
+REQUIRE_PERSISTENT_STORAGE = os.getenv("REQUIRE_PERSISTENT_STORAGE", "false").lower() == "true"
+
 # ━━━ Cache Redis ━━━
 # Laisser REDIS_URL vide pour désactiver le cache sans bloquer le pipeline pédagogique.
 REDIS_URL = _read_secret("REDIS_URL")

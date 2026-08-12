@@ -7,15 +7,91 @@ Toutes les données restent en local (RGPD).
 import sqlite3
 import os
 from contextlib import contextmanager
-from backend.config import DATABASE_PATH
+from pathlib import Path
+from typing import Any
+
+from backend.config import DATABASE_PATH, DATABASE_URL
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # PostgreSQL reste une dépendance optionnelle en développement.
+    psycopg = None
+    dict_row = None
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Connexion
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def get_connection() -> sqlite3.Connection:
-    """Create a new SQLite connection with row factory."""
+class CompatRow(dict):
+    """Dict-like row that also preserves SQLite's positional access contract."""
+
+    def __getitem__(self, key: Any):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class PostgresCursor:
+    """Minimal DB-API adapter so existing repository code stays backend-neutral."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    @property
+    def rowcount(self) -> int:
+        return self._cursor.rowcount
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        return CompatRow(row) if row is not None else None
+
+    def fetchall(self):
+        return [CompatRow(row) for row in self._cursor.fetchall()]
+
+
+class PostgresConnection:
+    """Translate SQLite placeholders to PostgreSQL placeholders at the boundary."""
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    @staticmethod
+    def _translate(query: str) -> str:
+        return query.replace("?", "%s").replace("datetime('now')", "CURRENT_TIMESTAMP")
+
+    def execute(self, query: str, params=None) -> PostgresCursor:
+        cursor = self._connection.execute(self._translate(query), params or ())
+        return PostgresCursor(cursor)
+
+    def commit(self) -> None:
+        self._connection.commit()
+
+    def rollback(self) -> None:
+        self._connection.rollback()
+
+    def close(self) -> None:
+        self._connection.close()
+
+
+def uses_postgres() -> bool:
+    """Return True only when a PostgreSQL connection URL was explicitly configured."""
+    return bool(DATABASE_URL)
+
+
+def get_connection():
+    """Create a PostgreSQL connection when configured, otherwise a local SQLite one."""
+    if uses_postgres():
+        if psycopg is None:
+            raise RuntimeError("PostgreSQL configuré mais la dépendance psycopg est absente.")
+        # Le pool transactionnel Supabase (PgBouncer) ne doit pas recevoir de
+        # prepared statements de session ; chaque opération reste courte.
+        connection = psycopg.connect(
+            DATABASE_URL, row_factory=dict_row, prepare_threshold=None
+        )
+        return PostgresConnection(connection)
+
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -42,8 +118,15 @@ def get_db():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def init_db():
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist in the selected persistence backend."""
     with get_db() as conn:
+        if uses_postgres():
+            schema_path = Path(__file__).resolve().parent.parent / "migrations" / "001_supabase_postgres.sql"
+            schema = schema_path.read_text(encoding="utf-8")
+            # psycopg exécute le script dans la transaction déjà ouverte par get_db.
+            schema = schema.replace("BEGIN;", "").replace("COMMIT;", "")
+            conn.execute(schema)
+            return
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS professors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,7 +243,7 @@ def init_db():
 # Helpers — conversion Row → dict
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def row_to_dict(row: sqlite3.Row) -> dict:
+def row_to_dict(row) -> dict:
     """Convert a sqlite3.Row to a plain dict."""
     if row is None:
         return None
@@ -179,11 +262,11 @@ def rows_to_list(rows) -> list:
 def create_professor(nom: str, prenom: str, email: str, password_hash: str) -> int:
     """Insert a new professor and return their ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "INSERT INTO professors (nom, prenom, email, password_hash) VALUES (?, ?, ?, ?)",
-            (nom, prenom, email, password_hash)
-        )
-        return cursor.lastrowid
+        query = "INSERT INTO professors (nom, prenom, email, password_hash) VALUES (?, ?, ?, ?)"
+        if uses_postgres():
+            query += " RETURNING id"
+        cursor = conn.execute(query, (nom, prenom, email, password_hash))
+        return cursor.fetchone()["id"] if uses_postgres() else cursor.lastrowid
 
 
 def get_professor_by_email(email: str) -> dict | None:
@@ -207,11 +290,11 @@ def get_professor_by_id(prof_id: int) -> dict | None:
 def create_student(professor_id: int, nom: str, prenom: str, classe: str, email: str = "") -> int:
     """Insert a new student and return their ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "INSERT INTO students (professor_id, nom, prenom, classe, email) VALUES (?, ?, ?, ?, ?)",
-            (professor_id, nom, prenom, classe, email)
-        )
-        return cursor.lastrowid
+        query = "INSERT INTO students (professor_id, nom, prenom, classe, email) VALUES (?, ?, ?, ?, ?)"
+        if uses_postgres():
+            query += " RETURNING id"
+        cursor = conn.execute(query, (professor_id, nom, prenom, classe, email))
+        return cursor.fetchone()["id"] if uses_postgres() else cursor.lastrowid
 
 
 def get_students_by_professor(professor_id: int) -> list:
@@ -259,19 +342,22 @@ def create_exam(student_id: int, professor_id: int, matiere: str, niveau: str,
                 subject_id: int | None = None) -> int:
     """Insert a new exam and return its ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            """INSERT INTO exams
+        query = """INSERT INTO exams
                (student_id, professor_id, matiere, niveau, date_examen,
                 note_totale, note_sur, appreciation, image_path,
                 alerte_anomalie, message_anomalie, subject_id,
                 review_status, ai_note_totale, ai_appreciation)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?)"""
+        if uses_postgres():
+            query += " RETURNING id"
+        cursor = conn.execute(
+            query,
             (student_id, professor_id, matiere, niveau, date_examen,
              note_totale, note_sur, appreciation, image_path,
              alerte_anomalie, message_anomalie, subject_id,
-             note_totale, appreciation)
+             note_totale, appreciation),
         )
-        return cursor.lastrowid
+        return cursor.fetchone()["id"] if uses_postgres() else cursor.lastrowid
 
 
 def get_exam_by_id(exam_id: int) -> dict | None:
@@ -337,15 +423,18 @@ def create_exercise(exam_id: int, numero: int, enonce: str, reponse_eleve: str,
                     correct: int, feedback: str, erreurs_types: str = "") -> int:
     """Insert a new exercise and return its ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            """INSERT INTO exercises
+        query = """INSERT INTO exercises
                (exam_id, numero, enonce, reponse_eleve, reponse_attendue,
                 points_obtenus, points_max, correct, feedback, erreurs_types)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        if uses_postgres():
+            query += " RETURNING id"
+        cursor = conn.execute(
+            query,
             (exam_id, numero, enonce, reponse_eleve, reponse_attendue,
-             points_obtenus, points_max, correct, feedback, erreurs_types)
+             points_obtenus, points_max, correct, feedback, erreurs_types),
         )
-        return cursor.lastrowid
+        return cursor.fetchone()["id"] if uses_postgres() else cursor.lastrowid
 
 
 def get_exercises_by_exam(exam_id: int) -> list:
@@ -433,10 +522,13 @@ def save_subject(professor_id: int, data: dict) -> int:
     import json as _json
     exercices_json = _json.dumps(data.get("exercices", []), ensure_ascii=False)
     with get_db() as conn:
-        cursor = conn.execute(
-            """INSERT INTO subjects
+        query = """INSERT INTO subjects
                (professor_id, matiere, niveau, titre, total_points, exercices_json, pdf_path)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)"""
+        if uses_postgres():
+            query += " RETURNING id"
+        cursor = conn.execute(
+            query,
             (
                 professor_id,
                 data.get("matiere", ""),
@@ -447,7 +539,7 @@ def save_subject(professor_id: int, data: dict) -> int:
                 data.get("pdf_path", ""),
             ),
         )
-        return cursor.lastrowid
+        return cursor.fetchone()["id"] if uses_postgres() else cursor.lastrowid
 
 
 def get_subject(subject_id: int) -> dict | None:

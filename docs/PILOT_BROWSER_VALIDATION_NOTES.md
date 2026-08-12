@@ -53,3 +53,45 @@ Pour un pilote réel, la décision technique requise est donc : migrer immédiat
 ## Correctif de session et publication
 
 Le correctif de validation des sessions orphelines a été ajouté avec son test de régression : un token JWT dont le professeur n’existe plus en base retourne désormais `401 Session expirée` au lieu de provoquer une erreur interne à l’insertion d’un élève. La suite backend compte maintenant 38 tests réussis. Le commit `1688557` a été publié sur `main`. À la dernière vérification, Render avait démarré son déploiement automatique à 15:14 et le statut était encore « In Progress ».
+
+## Préparation Supabase
+
+Le compte Supabase de l’utilisateur est accessible dans l’organisation « Euloge's projects » (plan Free, géré via Vercel Marketplace). Les projets existants listés sont distincts et en pause. Un nouvel espace dédié à Corrector AI est en cours de création afin de ne pas mélanger les données du pilote avec les autres projets. Les quotas affichés sont de 500 Mo pour la base et 1 Go pour le stockage de fichiers.
+
+Le formulaire de projet Supabase dédié est ouvert. Un mot de passe PostgreSQL fort a été généré par la plateforme et n’a été ni copié ni enregistré dans les notes. La région Europe est sélectionnée ; la politique à appliquer est de conserver l’API de données mais de désactiver l’exposition automatique des nouvelles tables, afin que les droits soient attribués explicitement.
+
+Le projet est nommé `corrector-ai-pilot`. L’exposition automatique des nouvelles tables a été désactivée. L’API de données reste activée pour le backend ; l’activation automatique de la RLS est disponible et doit être appliquée avant création afin que les tables de données scolaires soient protégées dès leur création.
+
+La création du projet `corrector-ai-pilot` a été soumise avec les mesures de sécurité suivantes : API de données activée, exposition automatique des tables désactivée et activation automatique de la RLS activée. L’initialisation du projet est en cours ; aucun secret de base n’a été copié dans la documentation ni dans le dépôt.
+
+Le projet Supabase `corrector-ai-pilot` est sain et hébergé en Europe de l’Ouest (Irlande). La connexion PostgreSQL directe est disponible ; l’URL de connexion sera placée uniquement dans la variable secrète `DATABASE_URL` du service Render, jamais dans le dépôt ni dans les notes de pilote.
+
+La navigation vers l’espace Supabase Storage du projet a été initiée après fermeture du panneau de connexion. Le bucket qui contiendra les copies et les sujets sera privé ; aucune URL publique ou clé de lecture ne sera exposée au frontend.
+
+Le formulaire de bucket Supabase confirme que le bucket sera privé par défaut. La création sera faite sous le nom technique `corrector-private`, avec une limite de taille et une liste de types MIME autorisés, afin de correspondre à la limite applicative de 10 Mo et aux formats effectivement acceptés.
+
+La limite de taille du bucket privé est activée. Elle sera fixée à 10 Mo, identique à la limite FastAPI, afin que les fichiers rejetés par Supabase ne soient jamais plus gros que ceux acceptés par le backend.
+
+La restriction MIME du bucket privé est activée. Les seuls types admis seront JPEG, PNG, WebP, PDF et documents Word, cohérents avec les formats applicatifs de copies et de sujets ; le bucket demeure non public.
+
+Réglages finalisés avant création : bucket non public, quota strict de 10 Mo par objet et MIME autorisés limités à `image/jpeg`, `image/png`, `image/webp`, `application/pdf`, `application/msword` et document Word OpenXML. Le bouton de création est disponible.
+
+L’éditeur SQL Supabase a chargé le script complet mais a refusé son exécution avec l’erreur d’interface « query: Too small: expected string to have >=1 characters », y compris via le raccourci Ctrl+Entrée. Aucune table n’a été confirmée comme créée par cette interface. Le schéma reste versionné dans `backend/migrations/001_supabase_postgres.sql` et sera appliqué automatiquement par `init_db()` au premier démarrage Render avec `DATABASE_URL` configurée, puis vérifié par les journaux et les routes de l’application.
+
+La connexion Supabase retenue est le **pool transactionnel**, adapté aux connexions brèves créées par la couche de données actuelle de Corrector AI. L’URL PostgreSQL de ce pool sera placée exclusivement dans le secret `DATABASE_URL` de Render avec le chiffrement TLS requis.
+
+Le panneau de connexion Supabase a bien sélectionné le pool transactionnel. Son interface n’a pas révélé la chaîne complète malgré le défilement, sans incidence sur le choix technique : la variable `DATABASE_URL` sera définie via les paramètres de connexion sécurisés du projet et validée au prochain démarrage Render.
+
+La clé secrète Supabase du projet a été copiée uniquement dans le presse-papiers du navigateur pour un transfert direct vers la configuration secrète Render. Elle n’a été ni affichée intégralement, ni placée dans les fichiers, notes ou sorties de commande. L’URL publique du projet est enregistrée comme `SUPABASE_URL`; les données du bucket restent privées.
+
+Le formulaire d’édition des variables d’environnement Render est ouvert. Les valeurs Supabase seront ajoutées comme secrets : `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` et `REQUIRE_PERSISTENT_STORAGE`. Aucun secret n’est consigné dans cette note.
+
+La page de gestion des clés API Supabase est accessible. Une clé secrète de projet est disponible pour le backend ; elle doit être conservée exclusivement dans Render. La tentative de transfert par presse-papiers a été abandonnée après détection d’un contenu local non fiable, sans sauvegarde de valeur erronée.
+
+Avec l’autorisation explicite de l’utilisateur, la configuration Render est reprise directement. Les variables Supabase existantes seront renseignées avec leurs valeurs correctes dans Render ; les secrets restent exclus des notes, du dépôt et des messages utilisateur.
+
+La configuration Render est en cours de finalisation avec une URL PostgreSQL transactionnelle chiffrée, le bucket privé et les paramètres Supabase. Les secrets ont été saisis directement dans Render avec l’autorisation de l’utilisateur et ne sont pas reproduits dans cette trace.
+
+Le service Render est connecté. Son réglage de notification actuel est « Use workspace default (Only failure notifications) ». Il sera remplacé par une notification de service couvrant tous les événements de déploiement, afin de signaler aussi les réussites et permettre un suivi explicite du pilote.
+
+La politique Render de **notifications de service est activée sur « All notifications »**. Le propriétaire du service recevra donc les avis e-mail Render pour les déploiements réussis, échoués et les événements de service, en complément des alertes Prometheus/Alertmanager déjà versionnées.
