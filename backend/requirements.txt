@@ -15,4 +15,5 @@ prometheus-client==0.21.1
 redis==5.0.8
 docling==2.15.0
 pymupdf==1.24.10
-psycopg[binary]==3.2.3
+# 3.2.13 inclut des roues binaires pour les runtimes Python récents de Render.
+psycopg[binary]==3.2.13
