@@ -101,10 +101,11 @@ async def test_parse_subject_mock(tmp_path):
 
     from backend.schemas.ai_outputs import SubjectRubric
 
+    validated_rubric = SubjectRubric.model_validate(MOCK_BAREME)
     with patch.object(
         subject_parser,
-        "_generate_bareme_with_claude",
-        return_value=SubjectRubric.model_validate(MOCK_BAREME),
+        "_generate_bareme_with_fallback",
+        new=AsyncMock(return_value=(validated_rubric, "claude")),
     ):
         result = await subject_parser.parse_subject(str(pdf_path))
 

@@ -1,0 +1,63 @@
+groups:
+  - name: corrector-ai-llm
+    rules:
+      - alert: CorrectorAiTargetDown
+        expr: up{job="corrector-ai"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: corrector-ai
+        annotations:
+          summary: "Corrector AI n'est plus collectable par Prometheus"
+          description: "La cible {{ $labels.instance }} est indisponible depuis au moins deux minutes."
+
+      - alert: CorrectorAiLlmErrorRateHigh
+        expr: |
+          (
+            sum(rate(corrector_ai_ai_calls_total{outcome="error"}[5m]))
+            /
+            clamp_min(sum(rate(corrector_ai_ai_calls_total[5m])), 0.001)
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: corrector-ai
+        annotations:
+          summary: "Taux d'erreur IA supérieur à 10 %"
+          description: "Les appels OCR/LLM échouent à plus de 10 % depuis dix minutes."
+
+      - alert: CorrectorAiLlmP95LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(corrector_ai_ai_call_duration_seconds_bucket[15m])) by (le)
+          ) > 12
+        for: 15m
+        labels:
+          severity: warning
+          service: corrector-ai
+        annotations:
+          summary: "Latence P95 IA supérieure à 12 secondes"
+          description: "La latence P95 des appels OCR/LLM dépasse 12 secondes depuis quinze minutes."
+
+      - alert: CorrectorAiRetryStorm
+        expr: sum(increase(corrector_ai_ai_retries_total[10m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+          service: corrector-ai
+        annotations:
+          summary: "Volume anormal de réessais IA"
+          description: "Plus de 20 réessais fournisseur ont été programmés durant les dix dernières minutes."
+
+      - alert: CorrectorAiProviderUnavailable
+        expr: |
+          sum(rate(corrector_ai_ai_call_errors_total{code="ai_provider_unavailable"}[10m])) by (provider)
+          > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: corrector-ai
+        annotations:
+          summary: "Fournisseur IA durablement indisponible"
+          description: "Le fournisseur {{ $labels.provider }} échoue en continu depuis dix minutes."

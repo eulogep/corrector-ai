@@ -44,6 +44,11 @@ AI_CALLS_IN_PROGRESS = Gauge(
     "Nombre d'appels IA actuellement en cours.",
     ("provider", "operation"),
 )
+AI_RETRIES_TOTAL = Counter(
+    "corrector_ai_ai_retries_total",
+    "Nombre de réessais programmés après un échec fournisseur transitoire.",
+    ("provider", "operation"),
+)
 
 
 def set_request_id(request_id: str):
@@ -110,6 +115,19 @@ def observe_ai_call(provider: str, operation: str) -> Iterator[str]:
             error_code=error_code,
             duration_ms=round(duration * 1000, 2),
         )
+
+
+def record_ai_retry(provider: str, operation: str, attempt: int, delay_seconds: float) -> None:
+    """Enregistrer un réessai sans exposer le contenu pédagogique de la requête."""
+    AI_RETRIES_TOTAL.labels(provider=provider, operation=operation).inc()
+    _log(
+        "ai_retry_scheduled",
+        request_id=request_id_context.get(),
+        provider=provider,
+        operation=operation,
+        attempt=attempt,
+        delay_ms=round(delay_seconds * 1000, 2),
+    )
 
 
 def prometheus_metrics() -> bytes:

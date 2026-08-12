@@ -6,6 +6,7 @@ ou une sortie non conforme du fournisseur génère une erreur métier explicite.
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from backend.config import GEMINI_API_KEY
@@ -19,6 +20,7 @@ from backend.services.exceptions import (
     AIProviderUnavailableError,
 )
 from backend.services.observability import observe_ai_call
+from backend.services.retry import call_with_exponential_backoff
 
 
 OCR_PROMPT = """Tu es un système OCR spécialisé dans la lecture de copies manuscrites d'élèves français.
@@ -102,15 +104,25 @@ def _generate_content(prompt: str, image_path: str) -> str:
 
 
 async def extract_text_structured(image_path: str) -> dict:
-    """Extraire des réponses structurées et valider strictement le contrat OCR."""
-    with observe_ai_call("gemini", "ocr_structured"):
-        text = _generate_content(OCR_PROMPT, image_path)
-        result = decode_json_response(text, OCRStructuredResult, provider="gemini")
-        return result.model_dump()
+    """Extraire des réponses structurées avec réessais limités d'erreurs Gemini transitoires."""
+    async def attempt() -> dict:
+        with observe_ai_call("gemini", "ocr_structured"):
+            text = await asyncio.to_thread(_generate_content, OCR_PROMPT, image_path)
+            result = decode_json_response(text, OCRStructuredResult, provider="gemini")
+            return result.model_dump()
+
+    return await call_with_exponential_backoff(
+        provider="gemini", operation="ocr_structured", call=attempt
+    )
 
 
 async def extract_text_simple(image_path: str) -> str:
-    """Extraire du texte brut non vide ; aucune sortie simulée n'est autorisée."""
-    with observe_ai_call("gemini", "ocr_simple"):
-        text = _generate_content(SIMPLE_PROMPT, image_path)
-        return validate_ocr_simple_text(text, provider="gemini")
+    """Extraire le texte OCR avec réessais limités sans jamais simuler de résultat."""
+    async def attempt() -> str:
+        with observe_ai_call("gemini", "ocr_simple"):
+            text = await asyncio.to_thread(_generate_content, SIMPLE_PROMPT, image_path)
+            return validate_ocr_simple_text(text, provider="gemini")
+
+    return await call_with_exponential_backoff(
+        provider="gemini", operation="ocr_simple", call=attempt
+    )

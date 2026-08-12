@@ -48,8 +48,9 @@ Corrector AI automatise tout le pipeline de correction :
 | 📄 **Rapport PDF** | Génération ReportLab avec détail exercice par exercice |
 | 📧 **Envoi email** | Rapport envoyé à l'élève automatiquement via SMTP |
 | 📊 **Export CSV** | Notes par classe exportables en un clic |
-| 🔒 **RGPD natif** | SQLite local — aucune donnée élève envoyée à l'étranger |
-| 📡 **Observabilité IA** | Traces corrélées, métriques Prometheus protégées et latence par fournisseur |
+| 🔒 **Données maîtrisées** | SQLite local ; les appels OCR/LLM envoient le contenu aux fournisseurs configurés, à encadrer par votre politique RGPD |
+| 📡 **Observabilité IA** | Traces corrélées, métriques Prometheus protégées, alertes et dashboard Grafana |
+| 🔁 **Résilience fournisseurs** | Réessais exponentiels bornés et bascule Claude → DeepSeek pour correction et barèmes |
 
 ---
 

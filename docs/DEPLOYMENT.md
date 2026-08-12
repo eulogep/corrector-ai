@@ -236,3 +236,73 @@ docker compose \
 ```
 
 Cette commande arrête les conteneurs sans supprimer les volumes nommés. N’utilisez `docker compose down --volumes` qu’après vérification d’une sauvegarde exploitable, car cette option supprimerait les données persistantes.
+
+
+## 10. Alertes Prometheus et tableau Grafana
+
+L’extension `docker-compose.monitoring.yml` démarre désormais trois composants : Prometheus, Alertmanager et Grafana. Prometheus charge `monitoring/alerts.yml`; Alertmanager regroupe les alertes; Grafana provisionne automatiquement la source Prometheus et le tableau **Corrector AI — Observabilité IA**.
+
+Avant le démarrage, créez le mot de passe administrateur Grafana, distinct de tous les autres secrets.
+
+```bash
+umask 077
+openssl rand -base64 32 > .secrets/grafana_admin_password
+chmod 600 .secrets/grafana_admin_password
+```
+
+Démarrez ou mettez à jour la stack de monitoring.
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.monitoring.yml \
+  up --build --detach
+```
+
+Grafana est volontairement lié à `127.0.0.1:3000`. Accédez-y par tunnel SSH et connectez-vous avec l’utilisateur `admin` et le mot de passe contenu dans `.secrets/grafana_admin_password`.
+
+```bash
+ssh -L 3000:127.0.0.1:3000 administrateur@serveur
+# Ouvrir ensuite http://localhost:3000
+```
+
+| Alerte | Condition | Réaction opérationnelle recommandée |
+|---|---|---|
+| `CorrectorAiTargetDown` | Prometheus ne peut plus collecter l’API pendant 2 minutes | Vérifier les conteneurs, `healthz`, le volume et les journaux |
+| `CorrectorAiLlmErrorRateHigh` | Plus de 10 % d’échecs IA pendant 10 minutes | Distinguer erreur de clé, JSON invalide et fournisseur indisponible dans Grafana |
+| `CorrectorAiLlmP95LatencyHigh` | P95 supérieure à 12 secondes pendant 15 minutes | Identifier le fournisseur ou l’opération lente; vérifier les réessais |
+| `CorrectorAiRetryStorm` | Plus de 20 réessais en 10 minutes | Contrôler les limites de quotas, le réseau et l’état du fournisseur |
+| `CorrectorAiProviderUnavailable` | Échecs persistants d’un fournisseur pendant 10 minutes | Vérifier la bascule, le statut fournisseur et les clés; envisager de désactiver temporairement le fournisseur défaillant |
+
+Alertmanager est livré avec un récepteur `discard` sûr par défaut : les alertes sont visibles dans Prometheus et Grafana mais ne sont pas expédiées à un tiers. Pour une notification e-mail, webhook ou messagerie, remplacez ce récepteur dans `monitoring/alertmanager.yml` et montez tout secret de canal sous `.secrets/`. Testez toujours le routage avec une alerte de démonstration avant de le considérer opérationnel.
+
+Le tableau Grafana permet de suivre le débit par fournisseur/opération/résultat, le taux d’erreur par fournisseur, la latence P95, les réessais et les codes d’erreur. Il ne contient aucune donnée de copie ni d’identité élève.
+
+## 11. Réessais exponentiels et bascule fournisseur
+
+Les appels OCR Gemini, les corrections LLM et la génération de barèmes disposent maintenant de réessais limités. L’essai initial compte dans `LLM_RETRY_MAX_ATTEMPTS`; avec les valeurs par défaut, un fournisseur est appelé au maximum trois fois avec un délai de `0,5 s`, puis `1 s`, plafonné à `4 s` et légèrement désynchronisé par jitter. Après épuisement, Corrector AI bascule vers le fournisseur suivant lorsque celui-ci est configuré.
+
+| Flux | Fournisseur principal | Repli | Réessaie | Ne réessaie jamais |
+|---|---|---|---|---|
+| OCR de copie | Gemini | Aucun fournisseur OCR alternatif dans cette version | Indisponibilité transitoire Gemini | Clé absente, fichier invalide, JSON OCR invalide |
+| Correction de copie | Claude | DeepSeek | Indisponibilité transitoire du fournisseur courant | Barème invalide, contrat JSON non respecté, clé absente |
+| Génération de barème | Claude | DeepSeek | Indisponibilité transitoire du fournisseur courant | Sujet illisible, contrat JSON non respecté, clé absente |
+
+Cette séparation est intentionnelle : répéter une requête dont le JSON est structurellement invalide augmente le coût et la latence sans améliorer la probabilité d’un résultat correct. Les métriques `corrector_ai_ai_retries_total` et les événements `ai_retry_scheduled` rendent chaque réessai visible dans Prometheus et dans les journaux.
+
+## 12. Réduire la latence LLM en production
+
+La première source de ralentissement doit être identifiée dans Grafana, par fournisseur et opération, avant toute modification. Les optimisations suivantes sont classées par impact et risque.
+
+| Optimisation | Effet attendu | Précaution |
+|---|---|---|
+| Réduire la taille des prompts | Diminue le temps réseau, de traitement et le coût | Ne retirer ni le barème ni les réponses nécessaires à une note vérifiable |
+| Réduire `max_tokens` selon la tâche | Les réponses courtes sont produites plus vite | Mesurer le taux de troncature et conserver une marge pour les copies longues |
+| Réutiliser les clients HTTP et fournisseurs | Évite les coûts répétés de connexion | Introduire un cycle de vie applicatif et des limites de concurrence testées avant activation |
+| Exécuter les bibliothèques synchrones hors boucle asynchrone | Préserve la réactivité FastAPI sous charge | Claude et Gemini sont déjà exécutés via `asyncio.to_thread` dans cette version |
+| Fixer des délais de connexion et de requête | Réduit l’attente lors d’une panne et déclenche plus tôt la bascule | Ne pas fixer un délai inférieur à la latence normale P95 observée |
+| Limiter le parallélisme des corrections | Évite la saturation, les 429 et une tempête de réessais | Ajuster le seuil à partir de `ai_calls_in_progress` et des quotas fournisseur |
+| Préparer et mettre en cache l’extraction des sujets | Évite de retraiter un même PDF lorsqu’un enseignant ajuste seulement le barème | Le cache doit avoir une durée limitée et respecter la politique de conservation des copies |
+| Utiliser un parcours rapide pour l’aperçu | Répond plus vite lors d’une prévisualisation | Toute note finale doit toujours passer par le même contrôle de contrat et une validation humaine |
+
+Les gains à faible risque déjà implémentés sont le passage hors boucle asynchrone des SDK synchrones Claude et Gemini, un délai de connexion HTTP DeepSeek de cinq secondes, une durée de requête DeepSeek de trente secondes, les réessais plafonnés et la bascule automatique. Avant de modifier les nombres de tentatives, les tokens ou les délais, observez sur plusieurs jours la latence P95, le taux d’erreur et le volume de réessais.

@@ -318,7 +318,7 @@ def test_subject_rubric_contract_rejects_point_total_mismatch():
 async def test_grade_copy_uses_deepseek_when_claude_fails():
     """Le repli fournisseur est conservé mais uniquement avec une sortie validée."""
     from unittest.mock import AsyncMock
-    from backend.services import llm
+    from backend.services import llm, retry
     from backend.services.exceptions import AIProviderUnavailableError
 
     valid_result = GradingResult.model_validate(VALID_GRADE)
@@ -328,7 +328,9 @@ async def test_grade_copy_uses_deepseek_when_claude_fails():
         llm,
         "_grade_with_claude",
         new=AsyncMock(side_effect=AIProviderUnavailableError("claude", "indisponible")),
-    ), patch.object(llm, "_grade_with_deepseek", new=AsyncMock(return_value=valid_result)):
+    ), patch.object(llm, "_grade_with_deepseek", new=AsyncMock(return_value=valid_result)), patch.object(
+        retry, "LLM_RETRY_MAX_ATTEMPTS", 1
+    ):
         result = await grade_copy(
             matiere="Mathématiques",
             niveau="4ème",
@@ -360,3 +362,92 @@ async def test_ocr_service_validates_a_provider_response():
         result = await vision.extract_text_structured("/tmp/fichier-non-utilise.png")
 
     assert result["exercices"][0]["texte_brut"] == "Réponse"
+
+
+@pytest.mark.asyncio
+async def test_retry_uses_exponential_backoff_then_succeeds():
+    """Un échec transitoire est réessayé avec un délai exponentiel borné."""
+    from unittest.mock import AsyncMock
+    from backend.services import retry
+    from backend.services.exceptions import AIProviderUnavailableError
+
+    call = AsyncMock(
+        side_effect=[
+            AIProviderUnavailableError("claude", "indisponible"),
+            AIProviderUnavailableError("claude", "indisponible"),
+            "résultat",
+        ]
+    )
+    sleep = AsyncMock()
+    with patch.object(retry, "LLM_RETRY_MAX_ATTEMPTS", 3), patch.object(
+        retry, "LLM_RETRY_BASE_SECONDS", 0.5
+    ), patch.object(retry, "LLM_RETRY_MAX_SECONDS", 4.0), patch.object(
+        retry.random, "uniform", return_value=1.0
+    ), patch.object(retry.asyncio, "sleep", sleep):
+        result = await retry.call_with_exponential_backoff(
+            provider="claude", operation="grading", call=call
+        )
+
+    assert result == "résultat"
+    assert call.await_count == 3
+    assert [awaited.args[0] for awaited in sleep.await_args_list] == [0.5, 1.0]
+
+
+@pytest.mark.asyncio
+async def test_retry_does_not_repeat_invalid_llm_output():
+    """Une sortie de contrat invalide ne doit jamais être répétée auprès du fournisseur."""
+    from unittest.mock import AsyncMock
+    from backend.services import retry
+
+    call = AsyncMock(side_effect=AIOutputValidationError("claude", "JSON invalide"))
+    sleep = AsyncMock()
+    with patch.object(retry.asyncio, "sleep", sleep):
+        with pytest.raises(AIOutputValidationError):
+            await retry.call_with_exponential_backoff(
+                provider="claude", operation="grading", call=call
+            )
+
+    assert call.await_count == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_subject_rubric_falls_back_to_deepseek_when_claude_fails():
+    """La génération de barème utilise DeepSeek après épuisement de Claude."""
+    from unittest.mock import AsyncMock
+    from backend.services import subject_parser
+    from backend.schemas.ai_outputs import SubjectRubric
+    from backend.services.exceptions import AIProviderUnavailableError
+
+    rubric = SubjectRubric.model_validate(
+        {
+            "matiere_detectee": "Mathématiques",
+            "niveau_detecte": "4ème",
+            "total_points": 10.0,
+            "exercices": [
+                {
+                    "numero": 1,
+                    "enonce": "Calcul",
+                    "reponse_attendue": "2",
+                    "points_max": 10.0,
+                    "sous_questions": [],
+                    "type": "calcul",
+                }
+            ],
+            "confiance": 0.9,
+            "remarques": "",
+        }
+    )
+    with patch("backend.services.subject_parser.ANTHROPIC_API_KEY", "claude-test"), patch(
+        "backend.services.subject_parser.DEEPSEEK_API_KEY", "deepseek-test"
+    ), patch.object(
+        subject_parser,
+        "_generate_bareme_with_claude",
+        new=AsyncMock(side_effect=AIProviderUnavailableError("claude", "indisponible")),
+    ), patch.object(
+        subject_parser, "_generate_bareme_with_deepseek", new=AsyncMock(return_value=rubric)
+    ):
+        result, provider = await subject_parser._generate_bareme_with_fallback("sujet", "docling")
+
+    assert provider == "deepseek"
+    assert result.total_points == 10.0

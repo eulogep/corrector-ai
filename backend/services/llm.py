@@ -7,7 +7,7 @@ une erreur explicite : elle ne génère jamais de note simulée.
 
 from __future__ import annotations
 
-import json
+import asyncio
 from typing import Awaitable, Callable
 
 from backend.config import ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
@@ -23,6 +23,7 @@ from backend.services.exceptions import (
     CorrectionInputError,
 )
 from backend.services.observability import observe_ai_call
+from backend.services.retry import call_with_exponential_backoff
 
 
 SYSTEM_PROMPT = """Tu es Corrector AI, un assistant pédagogique expert du système éducatif français.
@@ -129,7 +130,8 @@ async def _grade_with_claude(prompt: str) -> GradingResult:
             import anthropic
 
             client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            response = client.messages.create(
+            response = await asyncio.to_thread(
+                client.messages.create,
                 model="claude-sonnet-4-20250514",
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
@@ -156,7 +158,9 @@ async def _grade_with_deepseek(prompt: str) -> GradingResult:
         with observe_ai_call("deepseek", "grading"):
             import httpx
 
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout=30.0, connect=5.0)
+            ) as client:
                 response = await client.post(
                     "https://api.deepseek.com/chat/completions",
                     headers={
@@ -236,7 +240,11 @@ async def grade_copy(
     failures: list[AIServiceError] = []
     for provider_name, provider in providers:
         try:
-            result = await provider(prompt)
+            result = await call_with_exponential_backoff(
+                provider=provider_name,
+                operation="grading",
+                call=lambda provider=provider: provider(prompt),
+            )
             result = validate_grading_result(result, exercices_corrige, note_sur)
             payload = result.model_dump()
             payload["llm_used"] = provider_name

@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: discard
+  group_by: [alertname, service, provider]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  # Configuration sûre par défaut : les alertes restent consultables dans Prometheus
+  # et Grafana. Ajoutez ici un webhook, e-mail ou intégration de messagerie avant
+  # d'ouvrir un canal de notification externe.
+  - name: discard

@@ -37,6 +37,14 @@ JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 # L'endpoint Prometheus /metrics est désactivé tant que ce jeton n'est pas configuré.
 METRICS_TOKEN = _read_secret("METRICS_TOKEN")
 
+# ━━━ Résilience des appels LLM ━━━
+# L'essai initial est inclus dans LLM_RETRY_MAX_ATTEMPTS.
+LLM_RETRY_MAX_ATTEMPTS = max(1, int(os.getenv("LLM_RETRY_MAX_ATTEMPTS", "3")))
+LLM_RETRY_BASE_SECONDS = max(0.0, float(os.getenv("LLM_RETRY_BASE_SECONDS", "0.5")))
+LLM_RETRY_MAX_SECONDS = max(
+    LLM_RETRY_BASE_SECONDS, float(os.getenv("LLM_RETRY_MAX_SECONDS", "4"))
+)
+
 # ━━━ Serveur ━━━
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

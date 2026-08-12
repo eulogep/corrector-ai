@@ -6,9 +6,10 @@ respecter un contrat Pydantic strict ; aucun barème fictif n'est jamais génér
 
 from __future__ import annotations
 
+import asyncio
 import os
 
-from backend.config import ANTHROPIC_API_KEY
+from backend.config import ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
 from backend.schemas.ai_outputs import SubjectRubric, decode_json_response
 from backend.services.exceptions import (
     AIConfigurationError,
@@ -17,6 +18,7 @@ from backend.services.exceptions import (
     SubjectExtractionError,
 )
 from backend.services.observability import observe_ai_call
+from backend.services.retry import call_with_exponential_backoff
 
 
 BAREME_PROMPT_TEMPLATE = """Voici le texte d'un sujet d'examen, extrait depuis {source} :
@@ -116,33 +118,116 @@ async def _extract_text(file_path: str) -> tuple[str, str]:
     )
 
 
-def _generate_bareme_with_claude(texte: str, source: str) -> SubjectRubric:
-    """Générer puis valider un barème structuré avec Claude."""
+async def _generate_bareme_with_claude(texte: str, source: str) -> SubjectRubric:
+    """Générer un barème Claude avec réessais transitoires et validation stricte."""
     if not ANTHROPIC_API_KEY:
         raise AIConfigurationError(
             "claude", "ANTHROPIC_API_KEY doit être configurée pour générer un barème."
         )
 
     prompt = BAREME_PROMPT_TEMPLATE.format(texte=texte[:4000], source=source or "inconnue")
-    try:
-        with observe_ai_call("claude", "subject_rubric"):
-            import anthropic
 
-            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
-            text = response.content[0].text
-            return decode_json_response(text, SubjectRubric, provider="claude")
-    except AIServiceError:
-        raise
-    except Exception as exc:
-        raise AIProviderUnavailableError(
-            "claude", "Le fournisseur de génération de barème est indisponible ou a rejeté la requête."
-        ) from exc
+    async def attempt() -> SubjectRubric:
+        try:
+            with observe_ai_call("claude", "subject_rubric"):
+                import anthropic
+
+                client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                response = await asyncio.to_thread(
+                    client.messages.create,
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2000,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                )
+                text = response.content[0].text
+                return decode_json_response(text, SubjectRubric, provider="claude")
+        except AIServiceError:
+            raise
+        except Exception as exc:
+            raise AIProviderUnavailableError(
+                "claude", "Le fournisseur de génération de barème est indisponible ou a rejeté la requête."
+            ) from exc
+
+    return await call_with_exponential_backoff(
+        provider="claude", operation="subject_rubric", call=attempt
+    )
+
+
+async def _generate_bareme_with_deepseek(texte: str, source: str) -> SubjectRubric:
+    """Générer un barème via DeepSeek lorsque Claude est indisponible."""
+    if not DEEPSEEK_API_KEY:
+        raise AIConfigurationError(
+            "deepseek", "DEEPSEEK_API_KEY doit être configurée pour générer un barème de repli."
+        )
+
+    prompt = BAREME_PROMPT_TEMPLATE.format(texte=texte[:4000], source=source or "inconnue")
+
+    async def attempt() -> SubjectRubric:
+        try:
+            with observe_ai_call("deepseek", "subject_rubric"):
+                import httpx
+
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(timeout=30.0, connect=5.0)
+                ) as client:
+                    response = await client.post(
+                        "https://api.deepseek.com/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": "deepseek-chat",
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.1,
+                            "max_tokens": 2000,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    text = data["choices"][0]["message"]["content"]
+                    return decode_json_response(text, SubjectRubric, provider="deepseek")
+        except AIServiceError:
+            raise
+        except Exception as exc:
+            raise AIProviderUnavailableError(
+                "deepseek", "Le fournisseur DeepSeek est indisponible ou a rejeté la requête."
+            ) from exc
+
+    return await call_with_exponential_backoff(
+        provider="deepseek", operation="subject_rubric", call=attempt
+    )
+
+
+async def _generate_bareme_with_fallback(texte: str, source: str) -> tuple[SubjectRubric, str]:
+    """Utiliser le premier fournisseur de barème disponible produisant une sortie valide."""
+    providers = []
+    if ANTHROPIC_API_KEY:
+        providers.append(("claude", _generate_bareme_with_claude))
+    if DEEPSEEK_API_KEY:
+        providers.append(("deepseek", _generate_bareme_with_deepseek))
+    if not providers:
+        raise AIConfigurationError(
+            "subject_rubric",
+            "Aucun fournisseur de barème n'est configuré. Configurez ANTHROPIC_API_KEY ou DEEPSEEK_API_KEY.",
+        )
+
+    failures: list[AIServiceError] = []
+    for provider_name, provider in providers:
+        try:
+            return await provider(texte, source), provider_name
+        except AIServiceError as exc:
+            failures.append(exc)
+
+    invalid_output = next(
+        (error for error in failures if error.code == "ai_invalid_response"), None
+    )
+    if invalid_output:
+        raise invalid_output
+    raise AIProviderUnavailableError(
+        "subject_rubric", "Aucun fournisseur de barème n'a pu fournir une réponse exploitable."
+    ) from failures[-1]
 
 
 async def parse_subject(file_path: str) -> dict:
@@ -151,7 +236,8 @@ async def parse_subject(file_path: str) -> dict:
         raise SubjectExtractionError("document", "Le fichier du sujet est introuvable.")
 
     texte, source = await _extract_text(file_path)
-    bareme = _generate_bareme_with_claude(texte, source)
+    bareme, provider = await _generate_bareme_with_fallback(texte, source)
     result = bareme.model_dump()
     result["source_extraction"] = source
+    result["llm_used"] = provider
     return result
