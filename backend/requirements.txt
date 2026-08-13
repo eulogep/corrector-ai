@@ -6,7 +6,7 @@ bcrypt==4.2.0
 # SDK Gemini officiel maintenu ; la bibliothèque google-generativeai historique est retirée.
 google-genai>=1.0.0,<3.0.0
 anthropic==0.39.0
-reportlab==4.2.0
+reportlab==5.0.0
 python-multipart==0.0.9
 # Version requise par le SDK Google GenAI officiel et compatible avec les tests ASGI.
 httpx==0.28.1
