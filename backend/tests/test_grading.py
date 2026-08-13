@@ -248,12 +248,12 @@ async def test_final_score_constraints_and_email_review_gate(grading_setup):
         )
         assert invalid.status_code == 422
 
-        with patch("backend.routes.reports.SMTP_USER", "pilot@test.local"), patch(
-            "backend.routes.reports.SMTP_PASSWORD", "secret"
-        ):
-            email = await client.post(
-                "/api/reports/email",
-                json={"exam_id": exam_id, "to_email": "test@example.test"},
-                headers=grading_setup["headers"],
-            )
+        # La barrière de revue est indépendante de la disponibilité SMTP :
+        # une proposition non approuvée ne doit jamais aboutir à une erreur
+        # de transport qui masquerait le statut métier attendu.
+        email = await client.post(
+            "/api/reports/email",
+            json={"exam_id": exam_id, "to_email": "test@example.test"},
+            headers=grading_setup["headers"],
+        )
         assert email.status_code == 409

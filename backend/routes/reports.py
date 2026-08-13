@@ -154,9 +154,8 @@ class EmailRequest(BaseModel):
 @router.post("/email")
 async def send_email_report(data: EmailRequest, prof: dict = Depends(get_current_professor)):
     """Generate a PDF and send it via email SMTP."""
-    if not all([SMTP_USER, SMTP_PASSWORD]):
-        raise HTTPException(status_code=400, detail="SMTP non configuré. Remplissez les variables SMTP dans .env")
-
+    # La revue humaine est une barrière métier prioritaire : son absence doit
+    # toujours être signalée avant toute dépendance de transport (SMTP).
     exam = get_exam_by_id(data.exam_id)
     if not exam or exam["professor_id"] != prof["id"]:
         raise HTTPException(status_code=404, detail="Copie non trouvée")
@@ -166,6 +165,9 @@ async def send_email_report(data: EmailRequest, prof: dict = Depends(get_current
             status_code=409,
             detail="La copie doit être validée par l’enseignant avant son envoi par email.",
         )
+
+    if not all([SMTP_USER, SMTP_PASSWORD]):
+        raise HTTPException(status_code=400, detail="SMTP non configuré. Remplissez les variables SMTP dans .env")
 
     exercises = get_exercises_by_exam(data.exam_id)
     filepath = _generate_pdf(exam, exercises)
