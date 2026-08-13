@@ -59,6 +59,23 @@ MIME_TYPES = {
 }
 
 
+def _safe_gemini_error_message(exc: Exception) -> str:
+    """Classifier une erreur Gemini sans exposer de détail ou de clé fournisseur."""
+    error_type = type(exc).__name__
+    messages = {
+        "PermissionDenied": "L’accès à Gemini est refusé (clé, projet ou autorisation à vérifier).",
+        "Unauthenticated": "L’authentification Gemini est refusée (clé API à vérifier).",
+        "ResourceExhausted": "Le quota Gemini est épuisé ou la limite de débit est atteinte.",
+        "NotFound": "Le modèle Gemini configuré est indisponible.",
+        "InvalidArgument": "La requête Gemini est invalide pour le modèle configuré.",
+        "ServiceUnavailable": "Le service Gemini est temporairement indisponible.",
+        "DeadlineExceeded": "Gemini n’a pas répondu avant le délai prévu.",
+    }
+    return messages.get(
+        error_type, "Le fournisseur OCR Gemini est indisponible ou a rejeté la requête."
+    )
+
+
 def _read_file_for_gemini(image_path: str) -> tuple[bytes, str]:
     """Lire le support fourni et dériver son type MIME supporté."""
     if not os.path.isfile(image_path):
@@ -102,9 +119,7 @@ def _generate_content(prompt: str, image_path: str) -> str:
     except AIConfigurationError:
         raise
     except Exception as exc:
-        raise AIProviderUnavailableError(
-            "gemini", "Le fournisseur OCR Gemini est indisponible ou a rejeté la requête."
-        ) from exc
+        raise AIProviderUnavailableError("gemini", _safe_gemini_error_message(exc)) from exc
 
 
 async def extract_text_structured(image_path: str) -> dict:
