@@ -60,7 +60,7 @@ MIME_TYPES = {
 
 
 def _safe_gemini_error_message(exc: Exception) -> str:
-    """Classifier une erreur Gemini sans exposer de détail ou de clé fournisseur."""
+    """Classifier une erreur Gemini sans exposer de détail, de copie ou de clé fournisseur."""
     error_type = type(exc).__name__
     messages = {
         "PermissionDenied": "L’accès à Gemini est refusé (clé, projet ou autorisation à vérifier).",
@@ -71,8 +71,31 @@ def _safe_gemini_error_message(exc: Exception) -> str:
         "ServiceUnavailable": "Le service Gemini est temporairement indisponible.",
         "DeadlineExceeded": "Gemini n’a pas répondu avant le délai prévu.",
     }
-    return messages.get(
-        error_type, "Le fournisseur OCR Gemini est indisponible ou a rejeté la requête."
+    if error_type in messages:
+        return messages[error_type]
+
+    # Le SDK Google GenAI maintenu expose ClientError/ServerError avec un code
+    # HTTP, plutôt que les classes gRPC du SDK historique.
+    raw_status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    try:
+        status_code = int(raw_status_code)
+    except (TypeError, ValueError):
+        status_code = None
+
+    status_messages = {
+        400: "La requête Gemini est invalide pour le modèle configuré.",
+        401: "L’authentification Gemini est refusée (clé API à vérifier).",
+        403: "L’accès à Gemini est refusé (clé, projet ou autorisation à vérifier).",
+        404: "Le modèle Gemini configuré est indisponible.",
+        408: "Gemini n’a pas répondu avant le délai prévu.",
+        429: "Le quota Gemini est épuisé ou la limite de débit est atteinte.",
+        500: "Le service Gemini est temporairement indisponible.",
+        502: "Le service Gemini est temporairement indisponible.",
+        503: "Le service Gemini est temporairement indisponible.",
+        504: "Gemini n’a pas répondu avant le délai prévu.",
+    }
+    return status_messages.get(
+        status_code, "Le fournisseur OCR Gemini est indisponible ou a rejeté la requête."
     )
 
 
@@ -95,31 +118,45 @@ def _read_file_for_gemini(image_path: str) -> tuple[bytes, str]:
 
 
 def _generate_content(prompt: str, image_path: str) -> str:
-    """Appeler Gemini Vision et retourner son texte sans le transformer."""
+    """Appeler Gemini Vision via le SDK Google GenAI officiel et retourner son texte."""
     if not GEMINI_API_KEY:
         raise AIConfigurationError(
             "gemini", "GEMINI_API_KEY doit être configurée pour utiliser l'OCR."
         )
+    if not GEMINI_OCR_MODEL:
+        raise AIConfigurationError(
+            "gemini", "GEMINI_OCR_MODEL doit désigner un modèle OCR Gemini valide."
+        )
 
     image_data, mime_type = _read_file_for_gemini(image_path)
     try:
-        import google.generativeai as genai
+        from google import genai as google_genai
+        from google.genai import types as genai_types
+    except ImportError as exc:
+        raise AIConfigurationError(
+            "gemini", "Le SDK officiel google-genai doit être installé pour utiliser l'OCR."
+        ) from exc
 
-        genai.configure(api_key=GEMINI_API_KEY)
-        if not GEMINI_OCR_MODEL:
-            raise AIConfigurationError(
-                "gemini", "GEMINI_OCR_MODEL doit désigner un modèle OCR Gemini valide."
+    try:
+        # Un client éphémère est fermé après chaque OCR afin de ne pas laisser de
+        # connexions HTTP ouvertes dans les workers FastAPI longuement exécutés.
+        with google_genai.Client(api_key=GEMINI_API_KEY) as client:
+            response = client.models.generate_content(
+                model=GEMINI_OCR_MODEL,
+                contents=[
+                    genai_types.Part.from_text(text=prompt),
+                    genai_types.Part.from_bytes(data=image_data, mime_type=mime_type),
+                ],
             )
-        model = genai.GenerativeModel(GEMINI_OCR_MODEL)
-        response = model.generate_content([
-            prompt,
-            {"mime_type": mime_type, "data": image_data},
-        ])
-        return response.text
-    except AIConfigurationError:
-        raise
+        text = response.text
     except Exception as exc:
         raise AIProviderUnavailableError("gemini", _safe_gemini_error_message(exc)) from exc
+
+    if not isinstance(text, str) or not text.strip():
+        raise AIProviderUnavailableError(
+            "gemini", "Gemini a retourné une réponse OCR vide ou inexploitable."
+        )
+    return text
 
 
 async def extract_text_structured(image_path: str) -> dict:
