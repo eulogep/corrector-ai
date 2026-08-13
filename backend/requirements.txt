@@ -1,7 +1,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 python-dotenv==1.0.1
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]==3.5.0
 bcrypt==4.2.0
 # SDK Gemini officiel maintenu ; la bibliothèque google-generativeai historique est retirée.
 google-genai>=1.0.0,<3.0.0
