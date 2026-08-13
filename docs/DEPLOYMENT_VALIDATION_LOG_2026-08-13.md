@@ -79,3 +79,11 @@ Le diagnostic OCR de pilote contre `39dc292` retourne HTTP `200` avec la structu
 ## Repli de correction Gemini ajouté
 
 Le diagnostic de parcours complet a confirmé que l’OCR et le stockage durable réussissent, tandis que la correction n’obtenait aucune sortie valide de Claude ni de DeepSeek et remontait donc `provider:correction`. Un troisième repli contrôlé a été ajouté : Gemini 3.5 Flash, déjà validé avec la clé de production. Il demande explicitement une réponse JSON et applique le même contrat Pydantic strict avant toute sauvegarde ; aucune note simulée n’est possible. Les tests ciblés de validation IA (21) et la suite backend complète (43) sont passés avant publication.
+
+## Déploiement du repli de correction en cours
+
+Render indique que le commit `34a9e28` (`fix: add Gemini grading fallback`) est en cours de déploiement. La précédente version `39dc292` reste active pendant la reconstruction. Le test intégral du pilote reste différé jusqu’à la confirmation explicite de l’état *live* de ce commit.
+
+## Correctif de persistance PostgreSQL
+
+La trace du pilote a isolé un défaut de compatibilité : le contrat Pydantic produit un booléen pour `correct`, alors que le schéma PostgreSQL pilote persiste explicitement cette colonne en entier contrôlé (`0` ou `1`). L’insertion normalise désormais ce booléen vers `int(bool(correct))`, ce qui préserve le contrat strict IA tout en respectant le schéma existant et SQLite. Le test de sauvegarde couvre maintenant ce cas et les tests ciblés (26) ainsi que la suite complète (43) passent avant publication.

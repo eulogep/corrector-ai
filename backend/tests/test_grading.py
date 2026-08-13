@@ -8,7 +8,13 @@ from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient, ASGITransport
 from backend.app import app
 from backend.auth import create_token
-from backend.models.database import init_db, create_professor, create_student, get_exam_by_id
+from backend.models.database import (
+    create_professor,
+    create_student,
+    get_exam_by_id,
+    get_exercises_by_exam,
+    init_db,
+)
 from backend.auth import hash_password
 
 # Résultat mock de la correction
@@ -18,7 +24,7 @@ MOCK_GRADE_RESULT = {
             "numero": 1,
             "points_obtenus": 4.0,
             "points_max": 5.0,
-            "correct": 0,
+            "correct": True,
             "feedback": "Bonne réponse mais manque de précision.",
             "erreurs_types": "",
         },
@@ -127,6 +133,8 @@ async def test_grade_saves_to_db(grading_setup):
             assert exam is not None
             assert exam["matiere"] == "Mathématiques"
             assert exam["note_totale"] == 7.0
+            exercises = get_exercises_by_exam(data["exam_id"])
+            assert exercises[0]["correct"] == 1
 
 
 async def _create_pilot_exam(client, setup) -> int:

@@ -420,8 +420,14 @@ def delete_exam(exam_id: int) -> bool:
 
 def create_exercise(exam_id: int, numero: int, enonce: str, reponse_eleve: str,
                     reponse_attendue: str, points_obtenus: float, points_max: float,
-                    correct: int, feedback: str, erreurs_types: str = "") -> int:
-    """Insert a new exercise and return its ID."""
+                    correct: bool | int, feedback: str, erreurs_types: str = "") -> int:
+    """Insert a new exercise and return its ID.
+
+    SQLite accepte directement les booléens, tandis que le schéma PostgreSQL pilote
+    persiste ``correct`` en entier contrôlé (0 ou 1). La normalisation garantit le
+    même stockage dans les deux moteurs, sans assouplir le contrat booléen du LLM.
+    """
+    correct_value = int(bool(correct))
     with get_db() as conn:
         query = """INSERT INTO exercises
                (exam_id, numero, enonce, reponse_eleve, reponse_attendue,
@@ -432,7 +438,7 @@ def create_exercise(exam_id: int, numero: int, enonce: str, reponse_eleve: str,
         cursor = conn.execute(
             query,
             (exam_id, numero, enonce, reponse_eleve, reponse_attendue,
-             points_obtenus, points_max, correct, feedback, erreurs_types),
+             points_obtenus, points_max, correct_value, feedback, erreurs_types),
         )
         return cursor.fetchone()["id"] if uses_postgres() else cursor.lastrowid
 
