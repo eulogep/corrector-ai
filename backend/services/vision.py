@@ -82,6 +82,13 @@ def _safe_gemini_error_message(exc: Exception) -> str:
     except (TypeError, ValueError):
         status_code = None
 
+    # Certains 400 du SDK HTTP correspondent à une clé API non valide plutôt qu'à
+    # un défaut du contenu. On ne journalise jamais le message brut du fournisseur,
+    # mais on classe ce cas pour rendre le diagnostic de production actionnable.
+    raw_error_text = str(exc).lower()
+    if "api key not valid" in raw_error_text or "api_key_invalid" in raw_error_text:
+        return "L’authentification Gemini est refusée (clé API à vérifier)."
+
     status_messages = {
         400: "La requête Gemini est invalide pour le modèle configuré.",
         401: "L’authentification Gemini est refusée (clé API à vérifier).",

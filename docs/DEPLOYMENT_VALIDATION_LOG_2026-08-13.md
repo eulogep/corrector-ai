@@ -95,3 +95,11 @@ Render confirme le démarrage du déploiement automatique du commit `862d538` (`
 ## Parcours pilote complet validé
 
 Le commit `862d538` est confirmé *live* sur Render. Le parcours synthétique complet a réussi : authentification, lecture de l’élève de test, OCR réel avec deux exercices, persistance Supabase, correction via la chaîne de fournisseurs avec validation de schéma, création d’une proposition en attente de revue, blocage de l’e-mail avant validation humaine (`409`), revue approuvée, et enregistrement d’un cas de calibration. Le validateur retourne `PILOT_OK` avec `review=approved` et `calibration=recorded`.
+
+## Rotation de secrets et contrôle post-rotation
+
+La clé Gemini antérieure a été supprimée avec confirmation utilisateur depuis le projet Google Cloud historique ; la clé de remplacement associée au service reste distincte. `JWT_SECRET_KEY` a ensuite été remplacée dans Render par une valeur aléatoire et le déploiement est devenu *live*, ce qui invalide volontairement les sessions antérieures. Après rotation, `/healthz` répond toujours `200` et une nouvelle authentification fonctionne. Un appel OCR de production retourne toutefois `503` avec un diagnostic assaini indiquant une requête Gemini invalide pour le modèle configuré, tandis que le même appel multimodal au modèle `gemini-3.5-flash` réussit localement avec la clé de remplacement. La configuration Render du modèle OCR est donc en cours de vérification explicite avant nouvelle validation pilote.
+
+## Vérification approfondie de l’OCR post-rotation
+
+La variable `GEMINI_OCR_MODEL` n’était pas définie dans Render ; elle a été fixée explicitement à `gemini-3.5-flash`, et la clé de remplacement a été réenregistrée avant redéploiement. Le diagnostic OCR de production reste toutefois en échec `503` après cette mesure. La requête multimodale exacte de l’OCR, avec le même prompt, le même fichier PNG, le même SDK et la clé de remplacement, réussit localement. Les tests backend complets restent au vert (`43` tests). Une amélioration de classification sans fuite a été ajoutée pour distinguer, lors du prochain déploiement, une clé fournisseur rejetée d’une requête modèle réellement invalide.

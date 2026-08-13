@@ -42,9 +42,13 @@ def test_safe_gemini_error_message_classifies_common_provider_failures():
     quota_error = type("ResourceExhausted", (Exception,), {})()
     model_error = type("NotFound", (Exception,), {})()
     sdk_model_error = type("ClientError", (Exception,), {"code": 404})()
+    sdk_invalid_key_error = type("ClientError", (Exception,), {"code": 400})(
+        "API key not valid. Please pass a valid API key."
+    )
 
     assert "accès à gemini" in vision._safe_gemini_error_message(permission_error).lower()
     assert "quota" in vision._safe_gemini_error_message(quota_error).lower()
     assert "modèle gemini" in vision._safe_gemini_error_message(model_error).lower()
     assert "modèle gemini" in vision._safe_gemini_error_message(sdk_model_error).lower()
+    assert "authentification gemini" in vision._safe_gemini_error_message(sdk_invalid_key_error).lower()
     assert "fournisseur ocr gemini" in vision._safe_gemini_error_message(Exception("raw")).lower()
