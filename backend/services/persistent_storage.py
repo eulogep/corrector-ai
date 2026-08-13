@@ -88,7 +88,11 @@ async def save_uploaded_bytes(
         raise PersistentStorageError("Le stockage persistant est indisponible.") from exc
 
     if response.status_code not in {200, 201}:
-        raise PersistentStorageError("Le stockage persistant a refusé le fichier.")
+        # Le code HTTP suffit au diagnostic opératoire (clé, bucket, requête)
+        # sans exposer le corps fournisseur, susceptible de contenir du contexte sensible.
+        raise PersistentStorageError(
+            f"Le stockage persistant a refusé le fichier (HTTP {response.status_code})."
+        )
 
     return str(temporary_path), storage_reference(object_key)
 
