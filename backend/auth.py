@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 import bcrypt
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from backend.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS
+from backend.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS, JWT_TOKEN_VERSION
 from backend.models.database import get_professor_by_id
 
 # Schéma Bearer pour les headers Authorization
@@ -36,6 +36,7 @@ def create_token(professor_id: int, email: str) -> str:
     payload = {
         "sub": str(professor_id),
         "email": email,
+        "ver": JWT_TOKEN_VERSION,
         "exp": expire,
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -45,6 +46,8 @@ def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises HTTPException if invalid."""
     try:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        if payload.get("ver") != JWT_TOKEN_VERSION:
+            raise JWTError("Version de session invalide")
         return payload
     except JWTError:
         raise HTTPException(

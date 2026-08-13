@@ -103,3 +103,7 @@ La clé Gemini antérieure a été supprimée avec confirmation utilisateur depu
 ## Vérification approfondie de l’OCR post-rotation
 
 La variable `GEMINI_OCR_MODEL` n’était pas définie dans Render ; elle a été fixée explicitement à `gemini-3.5-flash`, et la clé de remplacement a été réenregistrée avant redéploiement. Le diagnostic OCR de production reste toutefois en échec `503` après cette mesure. La requête multimodale exacte de l’OCR, avec le même prompt, le même fichier PNG, le même SDK et la clé de remplacement, réussit localement. Les tests backend complets restent au vert (`43` tests). Une amélioration de classification sans fuite a été ajoutée pour distinguer, lors du prochain déploiement, une clé fournisseur rejetée d’une requête modèle réellement invalide.
+
+## Invalidation de sessions renforcée
+
+Après une rotation de secret de session suivie d’un redéploiement, une session navigateur antérieure est restée fonctionnelle. Pour rendre l’invalidation indépendante de toute éventuelle persistance de configuration fournisseur, le backend ajoute désormais une version de session (`JWT_TOKEN_VERSION=2`) dans chaque nouveau JWT et refuse tout jeton dont la version est absente ou différente. Cette mesure invalide explicitement toutes les sessions antérieures au déploiement de sécurité et est couverte par deux tests unitaires dédiés. La suite backend complète est au vert (`45` tests).

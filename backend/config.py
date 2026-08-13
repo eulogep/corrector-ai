@@ -34,6 +34,9 @@ DEEPSEEK_API_KEY = _read_secret("DEEPSEEK_API_KEY")
 
 # ━━━ JWT ━━━
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY", "dev-secret-change-me"))
+# Toute évolution de cette version invalide les jetons précédents, même si un fournisseur
+# de déploiement conserve temporairement une ancienne valeur de secret durant une rotation.
+JWT_TOKEN_VERSION = os.getenv("JWT_TOKEN_VERSION", "2").strip()
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 
