@@ -32,6 +32,8 @@ GEMINI_GRADING_MODEL = os.getenv("GEMINI_GRADING_MODEL", GEMINI_OCR_MODEL).strip
 ANTHROPIC_API_KEY = _read_secret("ANTHROPIC_API_KEY")
 # Repli multimodal OCR si Gemini est indisponible ou explicitement refusé.
 CLAUDE_OCR_MODEL = os.getenv("CLAUDE_OCR_MODEL", "claude-sonnet-4-20250514").strip()
+# Moteur local réel de dernier recours ; son activation est explicite en production.
+LOCAL_OCR_FALLBACK_ENABLED = os.getenv("LOCAL_OCR_FALLBACK_ENABLED", "false").lower() == "true"
 DEEPSEEK_API_KEY = _read_secret("DEEPSEEK_API_KEY")
 
 # ━━━ JWT ━━━

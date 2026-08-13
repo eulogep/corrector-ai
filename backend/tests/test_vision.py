@@ -125,3 +125,53 @@ def test_safe_claude_error_message_classifies_authentication_failure():
 
     assert "authentification claude" in vision._safe_claude_error_message(auth_error).lower()
     assert "fournisseur ocr claude" in vision._safe_claude_error_message(Exception("raw")).lower()
+
+
+def test_generate_content_with_easyocr_derives_structured_contract(tmp_path):
+    """EasyOCR encapsule le texte détecté dans le contrat OCR sans le fabriquer."""
+    image_path = tmp_path / "copy.png"
+    image_path.write_bytes(b"synthetic-image")
+    fake_reader = MagicMock()
+    fake_reader.readtext.return_value = [
+        (None, "Réponse détectée", 0.92),
+        (None, "suite", 0.80),
+    ]
+
+    with patch("easyocr.Reader", return_value=fake_reader):
+        raw = vision._generate_content_with_easyocr(vision.OCR_PROMPT, str(image_path))
+
+    assert raw == (
+        '{"nom_eleve_detecte": null, "exercices": '
+        '[{"numero": 1, "texte_brut": "Réponse détectée\\nsuite", "lisibilite": "bonne"}]}'
+    )
+
+
+def test_structured_ocr_falls_back_to_easyocr_when_enabled(tmp_path):
+    """Le moteur local n’est sollicité qu’après l’échec Gemini et quand il est explicitement activé."""
+    image_path = tmp_path / "copy.png"
+    image_path.write_bytes(b"synthetic-image")
+    valid_ocr_json = (
+        '{"nom_eleve_detecte":null,"exercices":['
+        '{"numero":1,"texte_brut":"Texte local","lisibilite":"moyenne"}]}'
+    )
+
+    async def single_attempt(**kwargs):
+        return await kwargs["call"]()
+
+    with (
+        patch.object(vision, "GEMINI_API_KEY", "test-gemini-key"),
+        patch.object(vision, "ANTHROPIC_API_KEY", ""),
+        patch.object(vision, "LOCAL_OCR_FALLBACK_ENABLED", True),
+        patch.object(
+            vision,
+            "_generate_content",
+            side_effect=AIProviderUnavailableError("gemini", "Indisponible"),
+        ) as gemini,
+        patch.object(vision, "_generate_content_with_easyocr", return_value=valid_ocr_json) as easyocr,
+        patch.object(vision, "call_with_exponential_backoff", side_effect=single_attempt),
+    ):
+        result = asyncio.run(vision.extract_text_structured(str(image_path)))
+
+    assert result["exercices"][0]["texte_brut"] == "Texte local"
+    gemini.assert_called_once()
+    easyocr.assert_called_once()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
 from collections.abc import Callable
 
@@ -18,6 +19,7 @@ from backend.config import (
     CLAUDE_OCR_MODEL,
     GEMINI_API_KEY,
     GEMINI_OCR_MODEL,
+    LOCAL_OCR_FALLBACK_ENABLED,
 )
 from backend.schemas.ai_outputs import (
     OCRStructuredResult,
@@ -210,6 +212,54 @@ def _generate_content(prompt: str, image_path: str) -> str:
     return text
 
 
+def _generate_content_with_easyocr(prompt: str, image_path: str) -> str:
+    """Lire une image avec EasyOCR local, sans résultat artificiel ni appel distant."""
+    image_data, mime_type = _read_file_for_ocr(image_path)
+    if mime_type not in CLAUDE_IMAGE_MIME_TYPES:
+        raise AIProviderUnavailableError(
+            "easyocr", "Le format de fichier OCR n’est pas pris en charge par EasyOCR."
+        )
+    if not image_data:
+        raise AIProviderUnavailableError("easyocr", "Le fichier OCR est vide.")
+
+    try:
+        import easyocr
+
+        reader = easyocr.Reader(["fr", "en"], gpu=False, verbose=False)
+        entries = reader.readtext(image_path, detail=1, paragraph=False)
+        valid_entries = [
+            entry for entry in entries if len(entry) >= 2 and str(entry[1]).strip()
+        ]
+        text_parts = [str(entry[1]).strip() for entry in valid_entries]
+        text = "\n".join(text_parts)
+        confidences = [
+            float(entry[2]) for entry in valid_entries if len(entry) >= 3 and isinstance(entry[2], (int, float))
+        ]
+    except Exception as exc:
+        raise AIProviderUnavailableError(
+            "easyocr", "Le moteur OCR local est indisponible ou a rejeté le fichier."
+        ) from exc
+
+    if not text.strip():
+        raise AIProviderUnavailableError(
+            "easyocr", "Le moteur OCR local n’a détecté aucun texte exploitable."
+        )
+    if prompt == SIMPLE_PROMPT:
+        return text
+
+    average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+    lisibilite = "bonne" if average_confidence >= 0.75 else "moyenne" if average_confidence >= 0.45 else "faible"
+    return json.dumps(
+        {
+            "nom_eleve_detecte": None,
+            "exercices": [
+                {"numero": 1, "texte_brut": text, "lisibilite": lisibilite}
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
 def _generate_content_with_claude(prompt: str, image_path: str) -> str:
     """Appeler Claude Vision comme repli OCR, sans jamais simuler une extraction."""
     if not ANTHROPIC_API_KEY:
@@ -279,6 +329,8 @@ def _ocr_providers() -> list[tuple[str, Callable[[str, str], str]]]:
     providers: list[tuple[str, Callable[[str, str], str]]] = [("gemini", _generate_content)]
     if ANTHROPIC_API_KEY:
         providers.append(("claude", _generate_content_with_claude))
+    if LOCAL_OCR_FALLBACK_ENABLED:
+        providers.append(("easyocr", _generate_content_with_easyocr))
     return providers
 
 
