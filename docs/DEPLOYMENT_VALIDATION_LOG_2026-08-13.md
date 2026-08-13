@@ -87,3 +87,11 @@ Render indique que le commit `34a9e28` (`fix: add Gemini grading fallback`) est 
 ## Correctif de persistance PostgreSQL
 
 La trace du pilote a isolé un défaut de compatibilité : le contrat Pydantic produit un booléen pour `correct`, alors que le schéma PostgreSQL pilote persiste explicitement cette colonne en entier contrôlé (`0` ou `1`). L’insertion normalise désormais ce booléen vers `int(bool(correct))`, ce qui préserve le contrat strict IA tout en respectant le schéma existant et SQLite. Le test de sauvegarde couvre maintenant ce cas et les tests ciblés (26) ainsi que la suite complète (43) passent avant publication.
+
+## Déploiement du correctif PostgreSQL en cours
+
+Render confirme le démarrage du déploiement automatique du commit `862d538` (`fix: normalize grading booleans for Postgres`). La précédente version avec le repli Gemini est toujours signalée *live* pendant cette reconstruction ; la validation finale reste volontairement en attente du nouveau statut *live*.
+
+## Parcours pilote complet validé
+
+Le commit `862d538` est confirmé *live* sur Render. Le parcours synthétique complet a réussi : authentification, lecture de l’élève de test, OCR réel avec deux exercices, persistance Supabase, correction via la chaîne de fournisseurs avec validation de schéma, création d’une proposition en attente de revue, blocage de l’e-mail avant validation humaine (`409`), revue approuvée, et enregistrement d’un cas de calibration. Le validateur retourne `PILOT_OK` avec `review=approved` et `calibration=recorded`.
