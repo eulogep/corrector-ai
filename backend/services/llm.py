@@ -10,7 +10,12 @@ from __future__ import annotations
 import asyncio
 from typing import Awaitable, Callable
 
-from backend.config import ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
+from backend.config import (
+    ANTHROPIC_API_KEY,
+    DEEPSEEK_API_KEY,
+    GEMINI_API_KEY,
+    GEMINI_GRADING_MODEL,
+)
 from backend.schemas.ai_outputs import (
     GradingResult,
     decode_json_response,
@@ -189,6 +194,46 @@ async def _grade_with_deepseek(prompt: str) -> GradingResult:
         ) from exc
 
 
+async def _grade_with_gemini(prompt: str) -> GradingResult:
+    """Obtenir une correction Gemini structurée, puis valider strictement son JSON."""
+    if not GEMINI_API_KEY:
+        raise AIConfigurationError(
+            "gemini", "GEMINI_API_KEY n'est pas configurée pour la correction."
+        )
+    if not GEMINI_GRADING_MODEL:
+        raise AIConfigurationError(
+            "gemini", "GEMINI_GRADING_MODEL doit désigner un modèle Gemini valide."
+        )
+
+    def generate() -> str:
+        from google import genai as google_genai
+        from google.genai import types as genai_types
+
+        with google_genai.Client(api_key=GEMINI_API_KEY) as client:
+            response = client.models.generate_content(
+                model=GEMINI_GRADING_MODEL,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_output_tokens=4096,
+                    response_mime_type="application/json",
+                ),
+            )
+        return response.text
+
+    try:
+        with observe_ai_call("gemini", "grading"):
+            text = await asyncio.to_thread(generate)
+            return decode_json_response(text, GradingResult, provider="gemini")
+    except AIServiceError:
+        raise
+    except Exception as exc:
+        raise AIProviderUnavailableError(
+            "gemini", "Le fournisseur Gemini est indisponible ou a rejeté la requête."
+        ) from exc
+
+
 def _validate_requested_scale(exercices_corrige: list[dict], note_sur: float) -> None:
     """Éviter d'envoyer au fournisseur un barème incohérent."""
     if not exercices_corrige:
@@ -230,11 +275,13 @@ async def grade_copy(
         providers.append(("claude", _grade_with_claude))
     if DEEPSEEK_API_KEY:
         providers.append(("deepseek", _grade_with_deepseek))
+    if GEMINI_API_KEY:
+        providers.append(("gemini", _grade_with_gemini))
 
     if not providers:
         raise AIConfigurationError(
             "correction",
-            "Aucun fournisseur de correction n'est configuré. Configurez ANTHROPIC_API_KEY ou DEEPSEEK_API_KEY.",
+            "Aucun fournisseur de correction n'est configuré. Configurez ANTHROPIC_API_KEY, DEEPSEEK_API_KEY ou GEMINI_API_KEY.",
         )
 
     failures: list[AIServiceError] = []

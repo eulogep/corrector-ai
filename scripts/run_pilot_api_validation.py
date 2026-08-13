@@ -47,6 +47,14 @@ def request_json(
                 message = detail.get("message")
                 if isinstance(message, str) and len(message) <= 200:
                     safe_detail = f" ({message})"
+            elif isinstance(detail, dict) and detail.get("code") in {
+                "ai_provider_unavailable",
+                "ai_provider_not_configured",
+                "ai_invalid_response",
+            }:
+                provider = detail.get("provider")
+                if isinstance(provider, str) and provider.isidentifier():
+                    safe_detail = f" (provider:{provider})"
             elif isinstance(detail, str) and "stockage" in detail.lower() and len(detail) <= 200:
                 # Les routes FastAPI standards peuvent sérialiser ce détail comme texte.
                 safe_detail = f" ({detail})"

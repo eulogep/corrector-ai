@@ -111,7 +111,7 @@ async def test_grade_copy_without_provider_raises_configuration_error_async():
     """Sans clé fournisseur, le service refuse explicitement la correction."""
     with patch("backend.services.llm.ANTHROPIC_API_KEY", ""), patch(
         "backend.services.llm.DEEPSEEK_API_KEY", ""
-    ):
+    ), patch("backend.services.llm.GEMINI_API_KEY", ""):
         with pytest.raises(AIConfigurationError) as error:
             await grade_copy(
                 matiere="Mathématiques",
@@ -170,7 +170,7 @@ async def test_grading_endpoint_returns_explicit_503_when_unconfigured(ai_token)
 
     with patch("backend.services.llm.ANTHROPIC_API_KEY", ""), patch(
         "backend.services.llm.DEEPSEEK_API_KEY", ""
-    ):
+    ), patch("backend.services.llm.GEMINI_API_KEY", ""):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
@@ -347,6 +347,71 @@ async def test_grade_copy_uses_deepseek_when_claude_fails():
 
     assert result["llm_used"] == "deepseek"
     assert result["note_totale"] == 7.0
+
+
+@pytest.mark.asyncio
+async def test_grade_copy_uses_gemini_when_claude_and_deepseek_fail():
+    """Gemini assure le dernier repli, avec une sortie toujours validée strictement."""
+    from unittest.mock import AsyncMock
+
+    from backend.services import llm, retry
+    from backend.services.exceptions import AIProviderUnavailableError
+
+    valid_result = GradingResult.model_validate(VALID_GRADE)
+    with patch("backend.services.llm.ANTHROPIC_API_KEY", "claude-test"), patch(
+        "backend.services.llm.DEEPSEEK_API_KEY", "deepseek-test"
+    ), patch("backend.services.llm.GEMINI_API_KEY", "gemini-test"), patch.object(
+        llm,
+        "_grade_with_claude",
+        new=AsyncMock(side_effect=AIProviderUnavailableError("claude", "indisponible")),
+    ), patch.object(
+        llm,
+        "_grade_with_deepseek",
+        new=AsyncMock(side_effect=AIProviderUnavailableError("deepseek", "indisponible")),
+    ), patch.object(
+        llm, "_grade_with_gemini", new=AsyncMock(return_value=valid_result)
+    ), patch.object(retry, "LLM_RETRY_MAX_ATTEMPTS", 1):
+        result = await grade_copy(
+            matiere="Mathématiques",
+            niveau="4ème",
+            note_sur=10.0,
+            exercices_corrige=[
+                {"numero": 1, "enonce": "Calcul", "reponse_attendue": "2", "points_max": 5.0},
+                {"numero": 2, "enonce": "Géométrie", "reponse_attendue": "Carré", "points_max": 5.0},
+            ],
+            reponses_eleve=[
+                {"numero": 1, "reponse_eleve": "2"},
+                {"numero": 2, "reponse_eleve": "Carré"},
+            ],
+        )
+
+    assert result["llm_used"] == "gemini"
+    assert result["note_totale"] == 7.0
+
+
+@pytest.mark.asyncio
+async def test_gemini_grading_request_requires_json_response():
+    """Le repli Gemini demande du JSON et passe sa réponse par le contrat Pydantic."""
+    from unittest.mock import MagicMock
+
+    from backend.services import llm
+
+    response = MagicMock(text=__import__("json").dumps(VALID_GRADE))
+    client = MagicMock()
+    client.models.generate_content.return_value = response
+    client_factory = MagicMock()
+    client_factory.return_value.__enter__.return_value = client
+
+    with patch("backend.services.llm.GEMINI_API_KEY", "gemini-test"), patch(
+        "backend.services.llm.GEMINI_GRADING_MODEL", "gemini-3.5-flash"
+    ), patch("google.genai.Client", client_factory):
+        result = await llm._grade_with_gemini("Consigne de test")
+
+    call_kwargs = client.models.generate_content.call_args.kwargs
+    assert call_kwargs["model"] == "gemini-3.5-flash"
+    assert call_kwargs["contents"] == "Consigne de test"
+    assert call_kwargs["config"].response_mime_type == "application/json"
+    assert result.note_totale == 7.0
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,8 @@ def _read_secret(env_name: str) -> str:
 GEMINI_API_KEY = _read_secret("GEMINI_API_KEY")
 # Modèle multimodal validé pour la clé de production ; remplaçable sans redéploiement.
 GEMINI_OCR_MODEL = os.getenv("GEMINI_OCR_MODEL", "gemini-3.5-flash").strip()
+# La correction reprend ce modèle par défaut, mais reste paramétrable indépendamment.
+GEMINI_GRADING_MODEL = os.getenv("GEMINI_GRADING_MODEL", GEMINI_OCR_MODEL).strip()
 ANTHROPIC_API_KEY = _read_secret("ANTHROPIC_API_KEY")
 DEEPSEEK_API_KEY = _read_secret("DEEPSEEK_API_KEY")
 

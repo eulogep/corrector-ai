@@ -63,3 +63,19 @@ Le diagnostic OCR exécuté après confirmation du service *live* retourne encor
 ## Cause racine et modèle validé
 
 Le diagnostic local effectué avec la clé de remplacement confirme que la clé peut lister 52 modèles et que `gemini-2.5-flash` déclare la capacité de génération, mais les appels de génération et d’interaction vers ce modèle retournent HTTP `404`. Ce même test, exécuté avec `gemini-3.5-flash`, réussit en texte comme en multimodal sur l’image de copie synthétique. Le correctif retenu est donc de remplacer la valeur OCR par défaut par `gemini-3.5-flash` : il s’agit d’un modèle explicitement testé avec la clé de production, sans altérer le mécanisme d’appel du SDK officiel.
+
+## Déploiement du modèle OCR validé
+
+Le commit `39dc292` (`fix: default OCR to tested Gemini model`) a été publié sur `main`. Render confirme le démarrage de son déploiement automatique à 11:48. La version active demeure `0b21d78` tant que cet événement n’a pas atteint l’état *live* ; aucun diagnostic OCR sur la nouvelle valeur par défaut ne doit être interprété avant cette confirmation.
+
+## Correctif Gemini 3.5 actif
+
+Le détail du déploiement Render confirme que `39dc292` est **Live**. Le service a démarré avec succès ; l’extraction OCR de pilote peut maintenant être testée contre le modèle validé `gemini-3.5-flash` et la clé remplacée.
+
+## Validation OCR réussie, validation complète partiellement bloquée
+
+Le diagnostic OCR de pilote contre `39dc292` retourne HTTP `200` avec la structure attendue (`nom_eleve_detecte`, `exercices`, `image_path`) : l’OCR Gemini réel est de nouveau opérationnel. Le parcours complet de pilote atteint ensuite la route de correction mais reçoit HTTP `503` sur `POST /api/grading/grade`. Cette seconde erreur concerne la phase LLM de notation, distincte de l’OCR ; elle doit être diagnostiquée avant de déclarer le parcours de correction intégralement validé.
+
+## Repli de correction Gemini ajouté
+
+Le diagnostic de parcours complet a confirmé que l’OCR et le stockage durable réussissent, tandis que la correction n’obtenait aucune sortie valide de Claude ni de DeepSeek et remontait donc `provider:correction`. Un troisième repli contrôlé a été ajouté : Gemini 3.5 Flash, déjà validé avec la clé de production. Il demande explicitement une réponse JSON et applique le même contrat Pydantic strict avant toute sauvegarde ; aucune note simulée n’est possible. Les tests ciblés de validation IA (21) et la suite backend complète (43) sont passés avant publication.
