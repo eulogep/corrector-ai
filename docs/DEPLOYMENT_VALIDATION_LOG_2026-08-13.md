@@ -107,3 +107,17 @@ La variable `GEMINI_OCR_MODEL` n’était pas définie dans Render ; elle a ét�
 ## Invalidation de sessions renforcée
 
 Après une rotation de secret de session suivie d’un redéploiement, une session navigateur antérieure est restée fonctionnelle. Pour rendre l’invalidation indépendante de toute éventuelle persistance de configuration fournisseur, le backend ajoute désormais une version de session (`JWT_TOKEN_VERSION=2`) dans chaque nouveau JWT et refuse tout jeton dont la version est absente ou différente. Cette mesure invalide explicitement toutes les sessions antérieures au déploiement de sécurité et est couverte par deux tests unitaires dédiés. La suite backend complète est au vert (`45` tests).
+
+## Déploiement JWT et diagnostic d’authentification Gemini
+
+Le déploiement `79718c5` est confirmé *live* sur Render. Le contrôle public `/healthz` retourne `{"status":"ok"}`. L’ancienne session navigateur est rejetée et le compte pilote peut ouvrir une nouvelle session, ce qui valide l’invalidation explicite par version de jeton. Le diagnostic OCR assaini retourne toutefois `503 ai_provider_unavailable` avec le message « L’authentification Gemini est refusée (clé API à vérifier) ».
+
+La clé de remplacement a été saisie de nouveau dans le champ secret `GEMINI_API_KEY` de Render, puis le déploiement `dep-d9uvnmh5efls73djel90` a construit et démarré avec succès. Après cet état *live*, le même diagnostic retourne encore le même refus d’authentification. En parallèle, la reproduction locale de l’appel multimodal structuré, avec le même modèle, le même fichier synthétique et la même clé, réussit avec une réponse non vide. La divergence est donc spécifique au contexte hébergé, et ne relève ni du prompt OCR, ni du format de fichier, ni du SDK officiel, ni du modèle configuré.
+
+Google AI Studio confirme que la clé est rattachée au projet Corrector AI et l’interface la traite comme une clé d’autorisation. Le compte Google disponible peut consulter l’entrée dans AI Studio mais ne dispose pas de `resourcemanager.projects.get` dans Cloud Console pour ce projet : les restrictions d’origine ou d’accès ne peuvent pas y être auditées ou modifiées par cette identité. Aucune valeur de clé, aucune donnée de copie et aucun détail brut de réponse fournisseur ne sont consignés dans ce journal.
+
+## Repli OCR fournisseur ajouté
+
+Afin de ne pas bloquer le traitement d’une copie réelle sur la disponibilité ou le refus ponctuel de Gemini, une chaîne OCR multi-fournisseur a été ajoutée. Gemini reste prioritaire. En cas d’échec contrôlé, Claude Vision est sollicité avec le même prompt, le support original encodé côté serveur et un modèle configurable par `CLAUDE_OCR_MODEL`. La réponse du repli suit exactement le même contrat Pydantic `OCRStructuredResult` avant tout retour à la route API ; une réponse vide, simulée ou hors contrat est rejetée explicitement.
+
+Le repli ne requiert pas de nouveau secret : il exploite `ANTHROPIC_API_KEY`, déjà utilisé par la chaîne de correction. L’exemple de configuration de préproduction documente le modèle Claude OCR sans y introduire de secret. Les tests couvrent l’encodage multimodal Claude, le basculement après indisponibilité Gemini, la validation JSON stricte et les messages assainis. La suite applicative backend termine avec `48 passed`.

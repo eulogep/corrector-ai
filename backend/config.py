@@ -30,6 +30,8 @@ GEMINI_OCR_MODEL = os.getenv("GEMINI_OCR_MODEL", "gemini-3.5-flash").strip()
 # La correction reprend ce modèle par défaut, mais reste paramétrable indépendamment.
 GEMINI_GRADING_MODEL = os.getenv("GEMINI_GRADING_MODEL", GEMINI_OCR_MODEL).strip()
 ANTHROPIC_API_KEY = _read_secret("ANTHROPIC_API_KEY")
+# Repli multimodal OCR si Gemini est indisponible ou explicitement refusé.
+CLAUDE_OCR_MODEL = os.getenv("CLAUDE_OCR_MODEL", "claude-sonnet-4-20250514").strip()
 DEEPSEEK_API_KEY = _read_secret("DEEPSEEK_API_KEY")
 
 # ━━━ JWT ━━━
