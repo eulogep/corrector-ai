@@ -11,7 +11,7 @@ python-multipart==0.0.9
 # Version requise par le SDK Google GenAI officiel et compatible avec les tests ASGI.
 httpx==0.28.1
 pytest==8.3.0
-pytest-asyncio==0.24.0
+pytest-asyncio==1.4.0
 pytest-cov==5.0.0
 prometheus-client==0.21.1
 redis==5.0.8
