@@ -47,6 +47,9 @@ def request_json(
                 message = detail.get("message")
                 if isinstance(message, str) and len(message) <= 200:
                     safe_detail = f" ({message})"
+            elif isinstance(detail, str) and "stockage" in detail.lower() and len(detail) <= 200:
+                # Les routes FastAPI standards peuvent sérialiser ce détail comme texte.
+                safe_detail = f" ({detail})"
         except ValueError:
             pass
         raise PilotValidationError(

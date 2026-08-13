@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from backend.config import GEMINI_API_KEY
+from backend.config import GEMINI_API_KEY, GEMINI_OCR_MODEL
 from backend.schemas.ai_outputs import (
     OCRStructuredResult,
     decode_json_response,
@@ -89,7 +89,11 @@ def _generate_content(prompt: str, image_path: str) -> str:
         import google.generativeai as genai
 
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        if not GEMINI_OCR_MODEL:
+            raise AIConfigurationError(
+                "gemini", "GEMINI_OCR_MODEL doit désigner un modèle OCR Gemini valide."
+            )
+        model = genai.GenerativeModel(GEMINI_OCR_MODEL)
         response = model.generate_content([
             prompt,
             {"mime_type": mime_type, "data": image_data},
