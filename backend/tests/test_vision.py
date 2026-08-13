@@ -19,7 +19,7 @@ def test_generate_content_uses_configured_stable_gemini_model(tmp_path):
 
     with (
         patch.object(vision, "GEMINI_API_KEY", "test-key"),
-        patch.object(vision, "GEMINI_OCR_MODEL", "gemini-2.5-flash"),
+        patch.object(vision, "GEMINI_OCR_MODEL", "gemini-3.5-flash"),
         patch("google.genai.Client", fake_client_factory),
     ):
         result = vision._generate_content("OCR prompt", str(image_path))
@@ -29,7 +29,7 @@ def test_generate_content_uses_configured_stable_gemini_model(tmp_path):
     fake_client.models.generate_content.assert_called_once()
 
     call_kwargs = fake_client.models.generate_content.call_args.kwargs
-    assert call_kwargs["model"] == "gemini-2.5-flash"
+    assert call_kwargs["model"] == "gemini-3.5-flash"
     text_part, image_part = call_kwargs["contents"]
     assert text_part.text == "OCR prompt"
     assert image_part.inline_data.mime_type == "image/png"
