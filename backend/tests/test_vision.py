@@ -125,3 +125,16 @@ def test_safe_claude_error_message_classifies_authentication_failure():
 
     assert "authentification claude" in vision._safe_claude_error_message(auth_error).lower()
     assert "fournisseur ocr claude" in vision._safe_claude_error_message(Exception("raw")).lower()
+
+
+def test_all_ocr_providers_failed_message_keeps_sanitized_provider_diagnostics():
+    """Le diagnostic final reste exploitable sans révéler de détail brut."""
+    failure = AIProviderUnavailableError(
+        "gemini", "L’authentification Gemini est refusée (clé API à vérifier)."
+    )
+
+    message = vision._all_ocr_providers_failed_message([failure])
+
+    assert "gemini:" in message
+    assert "authentification Gemini" in message
+    assert "Aucun fournisseur OCR" in message

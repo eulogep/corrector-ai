@@ -307,6 +307,18 @@ async def _run_ocr_simple(provider_name: str, generate: Callable[[str, str], str
     )
 
 
+def _all_ocr_providers_failed_message(failures: list[AIServiceError]) -> str:
+    """Synthétiser uniquement des diagnostics fournisseurs déjà assainis."""
+    details = [
+        f"{failure.provider}: {failure.message}"
+        for failure in failures
+        if isinstance(failure, AIProviderUnavailableError)
+    ]
+    if not details:
+        return "Aucun fournisseur OCR n'a pu fournir une extraction exploitable."
+    return "Aucun fournisseur OCR n'a pu fournir une extraction exploitable. " + " ".join(details)
+
+
 async def extract_text_structured(image_path: str) -> dict:
     """Extraire une copie via Gemini puis Claude, avec contrats et réessais bornés."""
     providers = _ocr_providers()
@@ -328,7 +340,7 @@ async def extract_text_structured(image_path: str) -> dict:
     if invalid_output:
         raise invalid_output
     raise AIProviderUnavailableError(
-        "ocr", "Aucun fournisseur OCR n'a pu fournir une extraction exploitable."
+        "ocr", _all_ocr_providers_failed_message(failures)
     ) from failures[-1]
 
 
@@ -353,5 +365,5 @@ async def extract_text_simple(image_path: str) -> str:
     if invalid_output:
         raise invalid_output
     raise AIProviderUnavailableError(
-        "ocr", "Aucun fournisseur OCR n'a pu fournir une extraction exploitable."
+        "ocr", _all_ocr_providers_failed_message(failures)
     ) from failures[-1]
