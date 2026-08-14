@@ -15,7 +15,9 @@ def _read_secret(env_name: str) -> str:
     value = os.getenv(env_name, "")
     secret_file = os.getenv(f"{env_name}_FILE", "")
     if value or not secret_file:
-        return value
+        # Les gestionnaires de variables peuvent introduire un espace ou un retour à la ligne
+        # à la saisie. Aucun secret applicatif pris en charge n’autorise ces caractères en bordure.
+        return value.strip()
     try:
         with open(secret_file, "r", encoding="utf-8") as file:
             return file.read().strip()
